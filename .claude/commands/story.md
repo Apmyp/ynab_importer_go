@@ -24,13 +24,14 @@ Run a user story using Ralph loop with feature-dev and TDD workflow.
    git checkout -b <branch> || git checkout <branch>
    ```
 
-5. Start Ralph loop with the story task. Use `/ralph-loop` command:
+5. Start Ralph loop with the story task:
 
-   ```
-   /ralph-loop "<STORY_PROMPT>" --completion-promise "STORY COMPLETE" --max-iterations 10
-   ```
+   a. Write the story prompt (built from template below) to file `.claude/story-prompt.tmp.md`
 
-   Where `<STORY_PROMPT>` is built from the story content below.
+   b. Use `/ralph-loop` command with the prompt file:
+   ```
+   /ralph-loop --prompt-file .claude/story-prompt.tmp.md --completion-promise "STORY COMPLETE" --max-iterations 10
+   ```
 
 ## Story Prompt Template
 

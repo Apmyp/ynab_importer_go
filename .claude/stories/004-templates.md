@@ -68,7 +68,7 @@ branch: "feature/004-templates"
 Сообщение: In data de 29.11 la 10:00-12:00 vor fi lucrari de mentenanta la Internet Banking si Mobile Banking
 Результат: игнор
 
-Сообщение: Cardul Eximbank ****6345 a fost adaugat cu success in Apple Pay.l
+Сообщение: Cardul Eximbank ****7890 a fost adaugat cu success in Apple Pay.l
 Результат: игнор
 
 Сообщение: [2025-06-16 18:23:40] Me: A
@@ -81,7 +81,7 @@ branch: "feature/004-templates"
 Результат: шаблон, списание с моей карты. Debitare cont Card {CARD_NUMBER}, Data {DATE}, Suma {AMOUNT} {CURRENCY}, {COMMENT}, Disponibil 7100.40 MDL
 
 Сообщение: Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Comision serviciu SMS pentru cardul nr. 199458, Disponibil 38400.60 MDL
-Результат: нужен шаблон. debitare = списание с моей карты 6345 в дату 08.04.2024 09:27:01, сумма 9.65, валюта MDL. Комментарий Detalii Comision serviciu SMS pentru cardul nr. 199458, остаток на счете 38400.60
+Результат: нужен шаблон. debitare = списание с моей карты 7890 в дату 08.04.2024 09:27:01, сумма 9.65, валюта MDL. Комментарий Detalii Comision serviciu SMS pentru cardul nr. 199458, остаток на счете 38400.60
 
 Сообщение: Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie MAIB GROCERY STORE BETA>CHISINAU, MDA, Disponibil 31200.80 MDL
 Результат: нужен шаблон, пример бери из debitare. Только Tranzactie reusita тоже означает списание с моего счета

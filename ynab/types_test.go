@@ -58,7 +58,7 @@ func TestSyncRecord_JSON(t *testing.T) {
 	if decoded.ImportID != record.ImportID {
 		t.Errorf("ImportID mismatch: got %s, want %s", decoded.ImportID, record.ImportID)
 	}
-	
+
 	// Compare times with truncation due to JSON serialization
 	if !decoded.SyncedAt.Truncate(time.Second).Equal(record.SyncedAt.Truncate(time.Second)) {
 		t.Errorf("SyncedAt mismatch: got %v, want %v", decoded.SyncedAt, record.SyncedAt)

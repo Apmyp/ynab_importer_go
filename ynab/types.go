@@ -5,7 +5,7 @@ import "time"
 // TransactionPayload represents a YNAB transaction for API requests
 type TransactionPayload struct {
 	AccountID string `json:"account_id"`
-	Date      string `json:"date"` // YYYY-MM-DD format
+	Date      string `json:"date"`   // YYYY-MM-DD format
 	Amount    int64  `json:"amount"` // Milliunits (amount * 1000)
 	PayeeName string `json:"payee_name,omitempty"`
 	Memo      string `json:"memo,omitempty"`

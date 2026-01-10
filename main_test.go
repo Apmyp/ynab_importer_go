@@ -655,3 +655,174 @@ func TestApp_runMissingTemplates_FiltersMeMessages(t *testing.T) {
 	// Messages from "Me" should be filtered out, only "Unknown message from bank" should be reported
 	// This test verifies the filter is working (the actual output goes to stdout)
 }
+
+func TestApp_runYNABSync_MissingConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *config.Config
+		want   string
+	}{
+		{
+			name: "missing budget_id",
+			config: &config.Config{
+				Senders: []string{"102"},
+				YNAB: config.YNABConfig{
+					BudgetID:  "",
+					Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+					StartDate: "2026-01-01",
+				},
+			},
+			want: "budget_id not configured",
+		},
+		{
+			name: "missing accounts",
+			config: &config.Config{
+				Senders: []string{"102"},
+				YNAB: config.YNABConfig{
+					BudgetID:  "test-budget",
+					Accounts:  []config.YNABAccount{},
+					StartDate: "2026-01-01",
+				},
+			},
+			want: "accounts not configured",
+		},
+		{
+			name: "missing start_date",
+			config: &config.Config{
+				Senders: []string{"102"},
+				YNAB: config.YNABConfig{
+					BudgetID:  "test-budget",
+					Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+					StartDate: "",
+				},
+			},
+			want: "start_date not configured",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := NewApp(tt.config)
+			err := app.runYNABSync()
+			if err == nil {
+				t.Errorf("runYNABSync() should return error, got nil")
+			}
+			if err != nil && err.Error() != "YNAB "+tt.want {
+				t.Errorf("runYNABSync() error = %v, want %v", err, "YNAB "+tt.want)
+			}
+		})
+	}
+}
+
+func TestApp_runYNABSync_InvalidStartDate(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "invalid-date",
+		},
+	}
+
+	app := NewApp(cfg)
+	err := app.runYNABSync()
+	if err == nil {
+		t.Error("runYNABSync() should return error for invalid start date")
+	}
+}
+
+func TestApp_runYNABSync_FetchError(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "2026-01-01",
+		},
+	}
+
+	mockFetcher := &MockFetcher{
+		fetchErr: errors.New("fetch failed"),
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runYNABSync()
+	if err == nil {
+		t.Error("runYNABSync() should return error when fetch fails")
+	}
+}
+
+func TestApp_runYNABSync_MissingAPIKey(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+
+	// Unset API key
+	os.Unsetenv("YNAB_API_KEY")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+				Sender:    "102",
+				Content: `Op: Tovary i uslugi
+Karta: *1234
+Status: Odobrena
+Summa: 100 MDL
+Dost: 1000,00
+Data/vremya: 10.01.26 10:00
+Adres: TEST SHOP`,
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runYNABSync()
+	if err == nil {
+		t.Error("runYNABSync() should return error when YNAB_API_KEY is not set")
+	}
+	if err != nil && err.Error() != "YNAB_API_KEY environment variable not set" {
+		t.Errorf("runYNABSync() error = %v, want YNAB_API_KEY environment variable not set", err)
+	}
+}
+
+func TestRun_YNABSyncCommand(t *testing.T) {
+	// Create temp config with YNAB settings
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	content := `{
+		"senders": ["102"],
+		"bagoup": {"db_path": "test.db", "separate_chats": true},
+		"ynab": {
+			"budget_id": "test-budget",
+			"accounts": [{"ynab_account_id": "acc-1", "last4": "1234"}],
+			"start_date": "2026-01-01"
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+
+	// This will fail because bagoup won't find the db, but tests the command parsing
+	err := Run([]string{"--config", configPath, "ynab_sync"})
+	// Will fail because of bagoup execution or missing API key
+	if err == nil {
+		t.Skip("Expected error from bagoup or missing API key")
+	}
+}

@@ -802,6 +802,115 @@ Adres: TEST SHOP`,
 	}
 }
 
+func TestApp_runYNABSync_NoTransactions(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+
+	// Set API key
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	// Empty messages - no transactions to sync
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runYNABSync()
+	// Should succeed with 0 transactions
+	if err != nil {
+		t.Errorf("runYNABSync() should succeed with no transactions, got error: %v", err)
+	}
+}
+
+func TestApp_runYNABSync_OnlyNonMDLTransactions(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+
+	// Set API key
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+				Sender:    "102",
+				Content:   "Message without template",
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runYNABSync()
+	// Should succeed with 0 MDL transactions
+	if err != nil {
+		t.Errorf("runYNABSync() should succeed with no MDL transactions, got error: %v", err)
+	}
+}
+
+func TestApp_convertTransactions_NilConverter(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102"},
+	}
+
+	app := NewApp(cfg)
+	app.converter = nil // Explicitly set converter to nil
+
+	parsedMessages := []*ParsedMessage{
+		{
+			Message: &bagoup.Message{
+				Timestamp: time.Now(),
+				Sender:    "102",
+			},
+			Transaction: &template.Transaction{
+				Original: template.Amount{Value: 100.0, Currency: "USD"},
+			},
+			HasTemplate: true,
+		},
+	}
+
+	// Should not panic with nil converter
+	app.convertTransactions(parsedMessages)
+
+	// Transaction should remain unchanged
+	if parsedMessages[0].Transaction.Converted.Currency != "" {
+		t.Error("Transaction should not be converted when converter is nil")
+	}
+}
+
 func TestRun_YNABSyncCommand(t *testing.T) {
 	// Create temp config with YNAB settings
 	dir := t.TempDir()

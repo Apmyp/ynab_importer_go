@@ -2,6 +2,8 @@ package exchangerate
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -123,5 +125,35 @@ func TestNewFetcher(t *testing.T) {
 	}
 	if fetcher.baseURL == "" {
 		t.Error("fetcher.baseURL should not be empty")
+	}
+}
+
+func TestDefaultHTTPClient_Get_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("test response"))
+	}))
+	defer server.Close()
+
+	client := &DefaultHTTPClient{client: server.Client()}
+	data, err := client.Get(server.URL)
+	if err != nil {
+		t.Errorf("Get() error = %v", err)
+	}
+	if string(data) != "test response" {
+		t.Errorf("Get() data = %s, want test response", string(data))
+	}
+}
+
+func TestDefaultHTTPClient_Get_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := &DefaultHTTPClient{client: server.Client()}
+	_, err := client.Get(server.URL)
+	if err == nil {
+		t.Error("Get() should return error for non-200 status")
 	}
 }

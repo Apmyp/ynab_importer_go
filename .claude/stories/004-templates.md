@@ -68,6 +68,12 @@ branch: "feature/004-templates"
 Сообщение: In data de 29.11 la 10:00-12:00 vor fi lucrari de mentenanta la Internet Banking si Mobile Banking
 Результат: игнор
 
+Сообщение: Cardul Eximbank ****6345 a fost adaugat cu success in Apple Pay.l
+Результат: игнор
+
+Сообщение: [2025-06-16 18:23:40] Me: A
+Результат: игнор
+
 Сообщение: Suplinire cont Card 9..7890, Data 01.09.2025 15:17:03, Suma 2610 MDL, Detalii Rambursarea sumelor in baza ordinelor nr, 34A-36A din 29., Disponibil 15800.60 MDL
 Результат: пополнение моего счета - Suplinire cont Card {CARD_NUMBER}, Data {DATE}, Suma {AMOUNT} {CURRENCY}, {COMMENT}, Disponibil 15800.60 MDL
 
@@ -83,9 +89,14 @@ branch: "feature/004-templates"
 Сообщение: Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 93719.33 MDL, Detalii Plata salariala luna aprilie, Disponibil 88700.25 MDL
 Результат: тоже что и предыдущее, только suplinire означает пополнение моего счета
 
+Сообщение: Suplinire cont Card 9..7890, Data 13.01.2025 16:13:56, Suma 990 RUB, Detalii ONLINE SERVICE GAMMA> 44712345678, GBR
+Результат: тоже что и предыдущее, только suplinire означает пополнение моего счета - Suplinire cont Card {CARD_NUMBER}, Data {DATE}, Suma {AMOUNT} {CURRENCY}, Detalii {COMMENT}, Disponibil 88700.25 MDL
+
 Сообщение: Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 93719.33 MDL, Detalii Plata salariala luna aprilie, Disponibil 88700.25 MDL
 Результат: тоже что и предыдущее, только suplinire означает пополнение моего счета
 
+Сообщение: Debitare cont Card 9..7890, Data 19.06.2024 16:41:08, Suma 876.6 MDL, Detalii Plata OP-OP8888777766665555/ INTERN : PENTRU MPAY, Contrac, Disponibil 7100.40 MDL
+Результат: списание с моего счета - Debitare cont Card {CARD_NUMBER}, Data {DATE}, Suma {AMOUNT} {CURRENCY}, Detalii {COMMENT}, Disponibil 7100.40 MDL
 
 ## Acceptance Criteria
 

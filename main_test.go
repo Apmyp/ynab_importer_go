@@ -77,8 +77,7 @@ func TestParsedMessage_WithTemplate(t *testing.T) {
 	}
 	tx := &template.Transaction{
 		Operation: "Test",
-		Amount:    100.0,
-		Currency:  "MDL",
+		Original:  template.Amount{Value: 100.0, Currency: "MDL"},
 	}
 
 	pm := &ParsedMessage{
@@ -165,8 +164,8 @@ Podderzhka: +12025551234`,
 	if pm.Transaction == nil {
 		t.Fatal("Transaction should not be nil")
 	}
-	if pm.Transaction.Amount != 34.0 {
-		t.Errorf("expected amount 34.0, got %f", pm.Transaction.Amount)
+	if pm.Transaction.Original.Value != 34.0 {
+		t.Errorf("expected amount 34.0, got %f", pm.Transaction.Original.Value)
 	}
 }
 
@@ -243,8 +242,8 @@ func TestApp_parseMessage_EximTransaction(t *testing.T) {
 	if pm.Transaction == nil {
 		t.Fatal("Transaction should not be nil")
 	}
-	if pm.Transaction.Amount != 5000.00 {
-		t.Errorf("expected amount 5000.00, got %f", pm.Transaction.Amount)
+	if pm.Transaction.Original.Value != 5000.00 {
+		t.Errorf("expected amount 5000.00, got %f", pm.Transaction.Original.Value)
 	}
 }
 

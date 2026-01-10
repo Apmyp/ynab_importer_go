@@ -8,13 +8,19 @@ import (
 	"strings"
 )
 
+// Amount represents a monetary amount in a specific currency
+type Amount struct {
+	Value    float64
+	Currency string
+}
+
 // Transaction represents a parsed bank transaction
 type Transaction struct {
 	Operation   string
 	Card        string
 	Status      string
-	Amount      float64
-	Currency    string
+	Original    Amount
+	Converted   Amount
 	Balance     float64
 	DateTime    string
 	Address     string
@@ -86,8 +92,7 @@ func (t *MAIBTemplate) Parse(content string) (*Transaction, error) {
 			if err != nil {
 				return nil, err
 			}
-			tx.Amount = amount
-			tx.Currency = currency
+			tx.Original = Amount{Value: amount, Currency: currency}
 		case "Dost":
 			balance, err := t.parseNumber(value)
 			if err != nil {
@@ -164,8 +169,7 @@ func (t *EximTransactionTemplate) Parse(content string) (*Transaction, error) {
 		DateTime:    matches[1],
 		FromAccount: matches[2],
 		ToAccount:   matches[3],
-		Amount:      amount,
-		Currency:    matches[5],
+		Original:    Amount{Value: amount, Currency: matches[5]},
 		Status:      matches[6],
 		RawMessage:  content,
 	}, nil
@@ -216,8 +220,7 @@ func (t *DebitareTemplate) Parse(content string) (*Transaction, error) {
 		Operation:  "Debitare",
 		Card:       matches[1],
 		DateTime:   matches[2],
-		Amount:     amount,
-		Currency:   matches[4],
+		Original:   Amount{Value: amount, Currency: matches[4]},
 		Address:    matches[5], // Using Address field for Detalii
 		Balance:    balance,
 		RawMessage: content,
@@ -268,8 +271,7 @@ func (t *TranzactieReusitaTemplate) Parse(content string) (*Transaction, error) 
 		Operation:  "Tranzactie reusita",
 		DateTime:   matches[1],
 		Card:       matches[2],
-		Amount:     amount,
-		Currency:   matches[4],
+		Original:   Amount{Value: amount, Currency: matches[4]},
 		Address:    matches[5], // Location
 		Balance:    balance,
 		RawMessage: content,
@@ -324,8 +326,7 @@ func (t *SuplinireTemplate) Parse(content string) (*Transaction, error) {
 		Operation:  "Suplinire",
 		Card:       matches[1],
 		DateTime:   matches[2],
-		Amount:     amount,
-		Currency:   matches[4],
+		Original:   Amount{Value: amount, Currency: matches[4]},
 		Address:    matches[5], // Using Address field for Detalii
 		Balance:    balance,
 		RawMessage: content,

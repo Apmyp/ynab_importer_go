@@ -7,3 +7,4 @@ coverage.out
 .claude/story-prompt.tmp.md
 ynab_importer_go
 ynab_importer_go_data.json
+messages_*/

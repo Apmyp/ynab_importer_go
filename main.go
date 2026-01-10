@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/chatdb"
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/exchangerate"
 	"github.com/apmyp/ynab_importer_go/system"
@@ -24,51 +25,47 @@ type MessageFetcher interface {
 	CheckDependencies() error
 }
 
-// BagoupFetcher implements MessageFetcher using the bagoup command
-type BagoupFetcher struct {
-	runner *bagoup.Runner
+// ChatDBFetcher implements MessageFetcher using direct SQLite access
+type ChatDBFetcher struct {
 	config *config.Config
 }
 
-// NewBagoupFetcher creates a new BagoupFetcher
-func NewBagoupFetcher(cfg *config.Config) *BagoupFetcher {
-	return &BagoupFetcher{
-		runner: bagoup.NewRunner(),
+// NewChatDBFetcher creates a new ChatDBFetcher
+func NewChatDBFetcher(cfg *config.Config) *ChatDBFetcher {
+	return &ChatDBFetcher{
 		config: cfg,
 	}
 }
 
-// CheckDependencies verifies bagoup is available
-func (f *BagoupFetcher) CheckDependencies() error {
-	return f.runner.CheckDependencies()
+// CheckDependencies verifies chat.db is accessible
+func (f *ChatDBFetcher) CheckDependencies() error {
+	dbPath := f.config.Bagoup.DBPath
+	if _, err := os.Stat(dbPath); err != nil {
+		return fmt.Errorf("chat.db not accessible at %s: %w", dbPath, err)
+	}
+	return nil
 }
 
-// FetchMessages runs bagoup and returns messages
-func (f *BagoupFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
-	f.runner.
-		WithDBPath(f.config.Bagoup.DBPath).
-		WithSenders(f.config.Senders)
-
-	outputDir, err := f.runner.Run()
+// FetchMessages reads messages directly from chat.db
+func (f *ChatDBFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
+	reader, err := chatdb.NewReader(f.config.Bagoup.DBPath, f.config.Senders)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, func() {}, fmt.Errorf("failed to open chat.db: %w", err)
+	}
+
+	messages, err := reader.FetchMessages()
+	if err != nil {
+		reader.Close()
+		return nil, func() {}, fmt.Errorf("failed to fetch messages: %w", err)
 	}
 
 	cleanup := func() {
-		if err := f.runner.Cleanup(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup temporary directory %s: %v\n", outputDir, err)
-		} else {
-			fmt.Printf("Cleaned up temporary directory %s\n", outputDir)
+		if err := reader.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close chat.db: %v\n", err)
 		}
 	}
 
-	messages, err := f.runner.ReadAllMessages()
-	if err != nil {
-		cleanup()
-		return nil, func() {}, err
-	}
-
-	fmt.Printf("Loaded %d messages from %s\n", len(messages), outputDir)
+	fmt.Printf("Loaded %d messages from chat.db\n", len(messages))
 	return messages, cleanup, nil
 }
 
@@ -99,7 +96,7 @@ func NewApp(cfg *config.Config) *App {
 
 	return &App{
 		config:    cfg,
-		fetcher:   NewBagoupFetcher(cfg),
+		fetcher:   NewChatDBFetcher(cfg),
 		matcher:   template.NewMatcher(),
 		pool:      worker.NewPool(numWorkers),
 		converter: newExchangeRateConverter(cfg),

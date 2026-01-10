@@ -9,8 +9,7 @@ func TestTransaction_Fields(t *testing.T) {
 		Operation:  "Tovary i uslugi",
 		Card:       "*1234",
 		Status:     "Odobrena",
-		Amount:     34.0,
-		Currency:   "MDL",
+		Original:   Amount{Value: 34.0, Currency: "MDL"},
 		Balance:    12500.50,
 		DateTime:   "03.05.23 16:21",
 		Address:    "COFFEE SHOP ALPHA",
@@ -21,8 +20,8 @@ func TestTransaction_Fields(t *testing.T) {
 	if tx.Operation != "Tovary i uslugi" {
 		t.Errorf("expected operation 'Tovary i uslugi', got %q", tx.Operation)
 	}
-	if tx.Amount != 34.0 {
-		t.Errorf("expected amount 34.0, got %f", tx.Amount)
+	if tx.Original.Value != 34.0 {
+		t.Errorf("expected amount 34.0, got %f", tx.Original.Value)
 	}
 }
 
@@ -78,11 +77,11 @@ Podderzhka: +12025551234`
 	if tx.Status != "Odobrena" {
 		t.Errorf("expected status 'Odobrena', got %q", tx.Status)
 	}
-	if tx.Amount != 34.0 {
-		t.Errorf("expected amount 34.0, got %f", tx.Amount)
+	if tx.Original.Value != 34.0 {
+		t.Errorf("expected amount 34.0, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 12500.50 {
 		t.Errorf("expected balance 12500.50, got %f", tx.Balance)
@@ -111,8 +110,8 @@ Podderzhka: +12025551234`
 		t.Fatalf("Parse() error = %v", err)
 	}
 
-	if tx.Amount != 132.87 {
-		t.Errorf("expected amount 132.87, got %f", tx.Amount)
+	if tx.Original.Value != 132.87 {
+		t.Errorf("expected amount 132.87, got %f", tx.Original.Value)
 	}
 }
 
@@ -132,11 +131,11 @@ Podderzhka: +12025551234`
 		t.Fatalf("Parse() error = %v", err)
 	}
 
-	if tx.Amount != 26.37 {
-		t.Errorf("expected amount 26.37, got %f", tx.Amount)
+	if tx.Original.Value != 26.37 {
+		t.Errorf("expected amount 26.37, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "USD" {
-		t.Errorf("expected currency 'USD', got %q", tx.Currency)
+	if tx.Original.Currency != "USD" {
+		t.Errorf("expected currency 'USD', got %q", tx.Original.Currency)
 	}
 }
 
@@ -170,11 +169,11 @@ func TestEximTransactionTemplate_Parse_Valid(t *testing.T) {
 	if tx.DateTime != "29/05/2023" {
 		t.Errorf("expected datetime '29/05/2023', got %q", tx.DateTime)
 	}
-	if tx.Amount != 5000.00 {
-		t.Errorf("expected amount 5000.00, got %f", tx.Amount)
+	if tx.Original.Value != 5000.00 {
+		t.Errorf("expected amount 5000.00, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Status != "Executata" {
 		t.Errorf("expected status 'Executata', got %q", tx.Status)
@@ -243,8 +242,8 @@ Podderzhka: +12025551234`
 		t.Fatal("expected non-nil transaction")
 	}
 
-	if tx.Amount != 34.0 {
-		t.Errorf("expected amount 34.0, got %f", tx.Amount)
+	if tx.Original.Value != 34.0 {
+		t.Errorf("expected amount 34.0, got %f", tx.Original.Value)
 	}
 }
 
@@ -416,11 +415,11 @@ func TestDebitareTemplate_Parse(t *testing.T) {
 	if tx.DateTime != "08.04.2024 09:27:01" {
 		t.Errorf("expected datetime '08.04.2024 09:27:01', got %q", tx.DateTime)
 	}
-	if tx.Amount != 9.65 {
-		t.Errorf("expected amount 9.65, got %f", tx.Amount)
+	if tx.Original.Value != 9.65 {
+		t.Errorf("expected amount 9.65, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 38400.60 {
 		t.Errorf("expected balance 38400.60, got %f", tx.Balance)
@@ -448,11 +447,11 @@ func TestDebitareTemplate_Parse_WithCommaInDetalii(t *testing.T) {
 	if tx.DateTime != "19.06.2024 16:41:08" {
 		t.Errorf("expected datetime '19.06.2024 16:41:08', got %q", tx.DateTime)
 	}
-	if tx.Amount != 876.6 {
-		t.Errorf("expected amount 876.6, got %f", tx.Amount)
+	if tx.Original.Value != 876.6 {
+		t.Errorf("expected amount 876.6, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 7100.40 {
 		t.Errorf("expected balance 7100.40, got %f", tx.Balance)
@@ -526,11 +525,11 @@ func TestTranzactieReusitaTemplate_Parse(t *testing.T) {
 	if tx.DateTime != "13.04.2024 13:20:30" {
 		t.Errorf("expected datetime '13.04.2024 13:20:30', got %q", tx.DateTime)
 	}
-	if tx.Amount != 91.91 {
-		t.Errorf("expected amount 91.91, got %f", tx.Amount)
+	if tx.Original.Value != 91.91 {
+		t.Errorf("expected amount 91.91, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 31200.80 {
 		t.Errorf("expected balance 31200.80, got %f", tx.Balance)
@@ -603,11 +602,11 @@ func TestSuplinireTemplate_Parse(t *testing.T) {
 	if tx.DateTime != "29.04.2024 16:18:01" {
 		t.Errorf("expected datetime '29.04.2024 16:18:01', got %q", tx.DateTime)
 	}
-	if tx.Amount != 93719.33 {
-		t.Errorf("expected amount 93719.33, got %f", tx.Amount)
+	if tx.Original.Value != 93719.33 {
+		t.Errorf("expected amount 93719.33, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "MDL" {
-		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	if tx.Original.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 88700.25 {
 		t.Errorf("expected balance 88700.25, got %f", tx.Balance)
@@ -642,11 +641,11 @@ func TestSuplinireTemplate_Parse_WithoutDisponibil(t *testing.T) {
 	if tx.DateTime != "13.01.2025 16:13:56" {
 		t.Errorf("expected datetime '13.01.2025 16:13:56', got %q", tx.DateTime)
 	}
-	if tx.Amount != 990 {
-		t.Errorf("expected amount 990, got %f", tx.Amount)
+	if tx.Original.Value != 990 {
+		t.Errorf("expected amount 990, got %f", tx.Original.Value)
 	}
-	if tx.Currency != "RUB" {
-		t.Errorf("expected currency 'RUB', got %q", tx.Currency)
+	if tx.Original.Currency != "RUB" {
+		t.Errorf("expected currency 'RUB', got %q", tx.Original.Currency)
 	}
 	if tx.Balance != 0 {
 		t.Errorf("expected balance 0 (not present), got %f", tx.Balance)

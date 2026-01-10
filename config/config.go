@@ -14,8 +14,10 @@ type BagoupConfig struct {
 
 // Config represents the application configuration
 type Config struct {
-	Senders []string     `json:"senders"`
-	Bagoup  BagoupConfig `json:"bagoup"`
+	Senders         []string     `json:"senders"`
+	Bagoup          BagoupConfig `json:"bagoup"`
+	DefaultCurrency string       `json:"default_currency"`
+	DataFilePath    string       `json:"data_file_path"`
 }
 
 // Load reads and parses a configuration file
@@ -28,6 +30,13 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.DefaultCurrency == "" {
+		cfg.DefaultCurrency = "MDL"
+	}
+	if cfg.DataFilePath == "" {
+		cfg.DataFilePath = "ynab_importer_go_data.json"
 	}
 
 	return &cfg, nil

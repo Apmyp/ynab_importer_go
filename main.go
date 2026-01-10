@@ -6,9 +6,11 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/apmyp/ynab_importer_go/bagoup"
 	"github.com/apmyp/ynab_importer_go/config"
+	"github.com/apmyp/ynab_importer_go/exchangerate"
 	"github.com/apmyp/ynab_importer_go/template"
 	"github.com/apmyp/ynab_importer_go/worker"
 )
@@ -65,31 +67,48 @@ func (f *BagoupFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
 
 // App encapsulates the application logic
 type App struct {
-	config  *config.Config
-	fetcher MessageFetcher
-	matcher *template.Matcher
-	pool    *worker.Pool
+	config    *config.Config
+	fetcher   MessageFetcher
+	matcher   *template.Matcher
+	pool      *worker.Pool
+	converter *exchangerate.Converter
+}
+
+// newExchangeRateConverter creates a new exchange rate converter from config
+func newExchangeRateConverter(cfg *config.Config) *exchangerate.Converter {
+	store, err := exchangerate.NewStore(cfg.DataFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
+		store = nil
+	}
+
+	fetcher := exchangerate.NewFetcher()
+	return exchangerate.NewConverter(store, fetcher, cfg.DefaultCurrency)
 }
 
 // NewApp creates a new application instance
 func NewApp(cfg *config.Config) *App {
 	numWorkers := runtime.NumCPU()
+
 	return &App{
-		config:  cfg,
-		fetcher: NewBagoupFetcher(cfg),
-		matcher: template.NewMatcher(),
-		pool:    worker.NewPool(numWorkers),
+		config:    cfg,
+		fetcher:   NewBagoupFetcher(cfg),
+		matcher:   template.NewMatcher(),
+		pool:      worker.NewPool(numWorkers),
+		converter: newExchangeRateConverter(cfg),
 	}
 }
 
 // NewAppWithFetcher creates a new application with a custom fetcher (for testing)
 func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
 	numWorkers := runtime.NumCPU()
+
 	return &App{
-		config:  cfg,
-		fetcher: fetcher,
-		matcher: template.NewMatcher(),
-		pool:    worker.NewPool(numWorkers),
+		config:    cfg,
+		fetcher:   fetcher,
+		matcher:   template.NewMatcher(),
+		pool:      worker.NewPool(numWorkers),
+		converter: newExchangeRateConverter(cfg),
 	}
 }
 
@@ -155,6 +174,9 @@ func (app *App) runDefault() error {
 		mu.Unlock()
 	})
 
+	// Convert foreign currencies to default currency
+	app.convertTransactions(parsedMessages)
+
 	// Group by sender
 	bySender := make(map[string][]*ParsedMessage)
 	for _, pm := range parsedMessages {
@@ -163,24 +185,59 @@ func (app *App) runDefault() error {
 		}
 	}
 
-	// Sort each sender's messages by timestamp (newest first) and take last 2
+	// Sort each sender's messages by timestamp (newest first) and display
 	for sender, msgs := range bySender {
 		sort.Slice(msgs, func(i, j int) bool {
 			return msgs[i].Message.Timestamp.After(msgs[j].Message.Timestamp)
 		})
 
-		fmt.Printf("\n=== %s (last 2 messages) ===\n", sender)
-		count := 2
-		if len(msgs) < 2 {
-			count = len(msgs)
+		// Collect messages to display: 2 latest + 2 foreign currency
+		toDisplay := make([]*ParsedMessage, 0)
+		foreignCurrency := make([]*ParsedMessage, 0)
+
+		// First pass: collect 2 latest
+		for i := 0; i < len(msgs) && i < 2; i++ {
+			toDisplay = append(toDisplay, msgs[i])
 		}
 
-		for i := 0; i < count; i++ {
+		// Second pass: collect foreign currency transactions (skip already displayed)
+		for i := 0; i < len(msgs) && len(foreignCurrency) < 2; i++ {
 			pm := msgs[i]
+			if pm.HasTemplate && pm.Transaction != nil && pm.Transaction.Original.Currency != app.config.DefaultCurrency {
+				// Check if this message is not already in toDisplay
+				alreadyDisplayed := false
+				for _, displayed := range toDisplay {
+					if displayed == pm {
+						alreadyDisplayed = true
+						break
+					}
+				}
+				if !alreadyDisplayed {
+					foreignCurrency = append(foreignCurrency, pm)
+				}
+			}
+		}
+
+		// Add foreign currency transactions to display list
+		toDisplay = append(toDisplay, foreignCurrency...)
+
+		// Display header
+		if len(foreignCurrency) > 0 {
+			fmt.Printf("\n=== %s (last 2 messages + %d foreign currency) ===\n", sender, len(foreignCurrency))
+		} else {
+			fmt.Printf("\n=== %s (last 2 messages) ===\n", sender)
+		}
+
+		// Display all collected messages
+		for _, pm := range toDisplay {
 			fmt.Printf("\n[%s]\n", pm.Message.Timestamp.Format("2006-01-02 15:04:05"))
 			if pm.HasTemplate && pm.Transaction != nil {
 				fmt.Printf("Operation: %s\n", pm.Transaction.Operation)
-				fmt.Printf("Amount: %.2f %s\n", pm.Transaction.Amount, pm.Transaction.Currency)
+				fmt.Printf("Amount: %.2f %s", pm.Transaction.Original.Value, pm.Transaction.Original.Currency)
+				if pm.Transaction.Converted.Currency != "" && pm.Transaction.Converted.Currency != pm.Transaction.Original.Currency {
+					fmt.Printf(" (%.2f %s)", pm.Transaction.Converted.Value, pm.Transaction.Converted.Currency)
+				}
+				fmt.Println()
 				fmt.Printf("Status: %s\n", pm.Transaction.Status)
 				if pm.Transaction.Address != "" {
 					fmt.Printf("Address: %s\n", pm.Transaction.Address)
@@ -253,6 +310,41 @@ func (app *App) parseMessage(msg *bagoup.Message) *ParsedMessage {
 		Message:     msg,
 		Transaction: tx,
 		HasTemplate: err == nil,
+	}
+}
+
+// convertTransactions converts all foreign currency transactions to default currency
+func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
+	if app.converter == nil {
+		return
+	}
+
+	for _, pm := range parsedMessages {
+		if pm == nil || !pm.HasTemplate || pm.Transaction == nil {
+			continue
+		}
+
+		tx := pm.Transaction
+		currency := tx.Original.Currency
+
+		// Use message timestamp truncated to day for rate lookup (UTC normalized)
+		date := pm.Message.Timestamp.UTC().Truncate(24 * time.Hour)
+
+		// Get or fetch the exchange rate
+		rate, err := app.converter.GetOrFetchRate(date, currency)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get exchange rate for %s on %s: %v\n",
+				currency, date.Format("2006-01-02"), err)
+			// Set converted to same as original if conversion fails
+			tx.Converted = tx.Original
+			continue
+		}
+
+		// Convert the amount
+		tx.Converted = template.Amount{
+			Value:    tx.Original.Value * rate,
+			Currency: app.config.DefaultCurrency,
+		}
 	}
 }
 

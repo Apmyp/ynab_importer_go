@@ -74,3 +74,59 @@ func TestConfig_GetSenders(t *testing.T) {
 		t.Errorf("expected 2 senders, got %d", len(senders))
 	}
 }
+
+func TestLoad_DefaultCurrencyAndDataFilePath(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	content := `{
+  "senders": ["102"],
+  "bagoup": {
+    "db_path": "~/Library/Messages/chat.db",
+    "separate_chats": true
+  },
+  "default_currency": "USD",
+  "data_file_path": "custom_data.json"
+}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.DefaultCurrency != "USD" {
+		t.Errorf("expected default_currency 'USD', got %q", cfg.DefaultCurrency)
+	}
+	if cfg.DataFilePath != "custom_data.json" {
+		t.Errorf("expected data_file_path 'custom_data.json', got %q", cfg.DataFilePath)
+	}
+}
+
+func TestLoad_DefaultValues(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	content := `{
+  "senders": ["102"],
+  "bagoup": {
+    "db_path": "~/Library/Messages/chat.db",
+    "separate_chats": true
+  }
+}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.DefaultCurrency != "MDL" {
+		t.Errorf("expected default currency 'MDL', got %q", cfg.DefaultCurrency)
+	}
+	if cfg.DataFilePath != "ynab_importer_go_data.json" {
+		t.Errorf("expected default data_file_path 'ynab_importer_go_data.json', got %q", cfg.DataFilePath)
+	}
+}

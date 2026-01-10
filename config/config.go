@@ -12,12 +12,26 @@ type BagoupConfig struct {
 	SeparateChats bool   `json:"separate_chats"`
 }
 
+// YNABAccount maps a card's last 4 digits to a YNAB account ID
+type YNABAccount struct {
+	YNABAccountID string `json:"ynab_account_id"`
+	Last4         string `json:"last4"`
+}
+
+// YNABConfig holds YNAB integration configuration
+type YNABConfig struct {
+	BudgetID  string        `json:"budget_id"`
+	Accounts  []YNABAccount `json:"accounts"`
+	StartDate string        `json:"start_date"` // YYYY-MM-DD format
+}
+
 // Config represents the application configuration
 type Config struct {
 	Senders         []string     `json:"senders"`
 	Bagoup          BagoupConfig `json:"bagoup"`
 	DefaultCurrency string       `json:"default_currency"`
 	DataFilePath    string       `json:"data_file_path"`
+	YNAB            YNABConfig   `json:"ynab"`
 }
 
 // Load reads and parses a configuration file

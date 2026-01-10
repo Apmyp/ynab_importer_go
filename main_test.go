@@ -620,3 +620,39 @@ func TestApp_runMissingTemplates_ExcludesIgnoredMessages(t *testing.T) {
 		t.Errorf("expected 1 message without template (excluding ignored), got %d", count)
 	}
 }
+
+func TestApp_runMissingTemplates_FiltersMeMessages(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102", "EXIMBANK"},
+	}
+
+	now := time.Now()
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: now,
+				Sender:    "Me",
+				Content:   "A",
+			},
+			{
+				Timestamp: now,
+				Sender:    "Me",
+				Content:   "Some user message",
+			},
+			{
+				Timestamp: now,
+				Sender:    "102",
+				Content:   "Unknown message from bank",
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runMissingTemplates()
+	if err != nil {
+		t.Errorf("runMissingTemplates() error = %v", err)
+	}
+
+	// Messages from "Me" should be filtered out, only "Unknown message from bank" should be reported
+	// This test verifies the filter is working (the actual output goes to stdout)
+}

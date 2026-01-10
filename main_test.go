@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -431,6 +432,53 @@ func TestApp_runDefault_MultipleSenders(t *testing.T) {
 	err := app.runDefault()
 	if err != nil {
 		t.Errorf("runDefault() error = %v", err)
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		validate func(string) bool
+	}{
+		{
+			name:     "absolute path unchanged",
+			input:    "/usr/local/bin",
+			wantErr:  false,
+			validate: func(result string) bool { return result == "/usr/local/bin" },
+		},
+		{
+			name:     "relative path unchanged",
+			input:    "relative/path",
+			wantErr:  false,
+			validate: func(result string) bool { return result == "relative/path" },
+		},
+		{
+			name:     "tilde only expands to home",
+			input:    "~",
+			wantErr:  false,
+			validate: func(result string) bool { return len(result) > 1 && result != "~" },
+		},
+		{
+			name:     "tilde with path expands",
+			input:    "~/Library/Messages",
+			wantErr:  false,
+			validate: func(result string) bool { return strings.Contains(result, "Library/Messages") && !strings.HasPrefix(result, "~") },
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := expandPath(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("expandPath() error = %v, wantErr %v", err, tc.wantErr)
+				return
+			}
+			if !tc.wantErr && !tc.validate(result) {
+				t.Errorf("expandPath(%q) = %q, validation failed", tc.input, result)
+			}
+		})
 	}
 }
 

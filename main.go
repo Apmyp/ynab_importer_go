@@ -12,6 +12,7 @@ import (
 	"github.com/apmyp/ynab_importer_go/bagoup"
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/exchangerate"
+	"github.com/apmyp/ynab_importer_go/system"
 	"github.com/apmyp/ynab_importer_go/template"
 	"github.com/apmyp/ynab_importer_go/worker"
 	"github.com/apmyp/ynab_importer_go/ynab"
@@ -152,6 +153,10 @@ func Run(args []string) error {
 		return app.runMissingTemplates()
 	case "ynab_sync":
 		return app.runYNABSync()
+	case "system_install":
+		return app.runSystemInstall()
+	case "system_uninstall":
+		return app.runSystemUninstall()
 	case "default":
 		return app.runDefault()
 	default:
@@ -426,9 +431,30 @@ func (app *App) runYNABSync() error {
 
 	client := ynab.NewHTTPClient(apiKey)
 
+	// Ensure all transactions have YNAB accounts
+	accountManager := ynab.NewAccountManager(client)
+	updatedAccounts, err := accountManager.EnsureAccounts(
+		app.config.YNAB.BudgetID,
+		app.config.YNAB.Accounts,
+		filteredTransactions,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to ensure accounts: %w", err)
+	}
+
+	// Save config if new accounts were added
+	if len(updatedAccounts) > len(app.config.YNAB.Accounts) {
+		numNewAccounts := len(updatedAccounts) - len(app.config.YNAB.Accounts)
+		app.config.YNAB.Accounts = updatedAccounts
+		if err := app.config.Save("config.json"); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		fmt.Printf("Added %d new account(s) to config.json\n", numNewAccounts)
+	}
+
 	// Convert config accounts to ynab accounts
-	ynabAccounts := make([]ynab.YNABAccount, len(app.config.YNAB.Accounts))
-	for i, acc := range app.config.YNAB.Accounts {
+	ynabAccounts := make([]ynab.YNABAccount, len(updatedAccounts))
+	for i, acc := range updatedAccounts {
 		ynabAccounts[i] = ynab.YNABAccount{
 			YNABAccountID: acc.YNABAccountID,
 			Last4:         acc.Last4,
@@ -456,6 +482,63 @@ func (app *App) runYNABSync() error {
 		}
 	}
 
+	return nil
+}
+
+// runSystemInstall installs the hourly sync service
+func (app *App) runSystemInstall() error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	installer, err := system.NewInstaller(execPath, workingDir)
+	if err != nil {
+		return err
+	}
+
+	if err := installer.Install(); err != nil {
+		return err
+	}
+
+	fmt.Println("Successfully installed hourly sync service")
+	fmt.Printf("Binary: %s\n", execPath)
+	fmt.Printf("Working directory: %s\n", workingDir)
+	fmt.Printf("Logs:\n")
+	fmt.Printf("  Standard output: %s/ynab_sync.log\n", workingDir)
+	fmt.Printf("  Error output: %s/ynab_sync_error.log\n", workingDir)
+	fmt.Println("Sync will run every hour")
+
+	return nil
+}
+
+// runSystemUninstall removes the hourly sync service
+func (app *App) runSystemUninstall() error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	installer, err := system.NewInstaller(execPath, workingDir)
+	if err != nil {
+		return err
+	}
+
+	if err := installer.Uninstall(); err != nil {
+		return err
+	}
+
+	fmt.Println("Successfully uninstalled hourly sync service")
 	return nil
 }
 

@@ -177,3 +177,68 @@ func TestLoad_WithYNABConfig(t *testing.T) {
 		t.Errorf("Account 0 Last4 = %v, want 1234", cfg.YNAB.Accounts[0].Last4)
 	}
 }
+
+func TestConfig_Save(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	cfg := &Config{
+		Senders: []string{"102", "EXIMBANK"},
+		Bagoup: BagoupConfig{
+			DBPath:        "~/Library/Messages/chat.db",
+			SeparateChats: true,
+		},
+		DefaultCurrency: "MDL",
+		DataFilePath:    "ynab_importer_go_data.json",
+		YNAB: YNABConfig{
+			BudgetID:  "test-budget-id",
+			StartDate: "2026-01-01",
+			Accounts: []YNABAccount{
+				{YNABAccountID: "account-1", Last4: "1234"},
+				{YNABAccountID: "account-2", Last4: "5678"},
+			},
+		},
+	}
+
+	err := cfg.Save(configPath)
+	if err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("config file was not created")
+	}
+
+	// Load and verify content
+	loadedCfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() after Save() error = %v", err)
+	}
+
+	// Verify all fields match
+	if len(loadedCfg.Senders) != len(cfg.Senders) {
+		t.Errorf("Senders length = %d, want %d", len(loadedCfg.Senders), len(cfg.Senders))
+	}
+	if loadedCfg.DefaultCurrency != cfg.DefaultCurrency {
+		t.Errorf("DefaultCurrency = %v, want %v", loadedCfg.DefaultCurrency, cfg.DefaultCurrency)
+	}
+	if loadedCfg.YNAB.BudgetID != cfg.YNAB.BudgetID {
+		t.Errorf("BudgetID = %v, want %v", loadedCfg.YNAB.BudgetID, cfg.YNAB.BudgetID)
+	}
+	if len(loadedCfg.YNAB.Accounts) != len(cfg.YNAB.Accounts) {
+		t.Errorf("Accounts length = %d, want %d", len(loadedCfg.YNAB.Accounts), len(cfg.YNAB.Accounts))
+	}
+}
+
+func TestConfig_Save_InvalidPath(t *testing.T) {
+	cfg := &Config{
+		Senders: []string{"102"},
+	}
+
+	// Try to save to non-existent directory without creating it
+	err := cfg.Save("/nonexistent/directory/config.json")
+	if err == nil {
+		t.Error("Save() should return error for invalid path")
+	}
+}

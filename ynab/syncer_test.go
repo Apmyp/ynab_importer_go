@@ -12,6 +12,8 @@ import (
 // Mock client for testing
 type mockClient struct {
 	createTransactionsFunc func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error)
+	getAccountsFunc        func(budgetID string) (*GetAccountsResponse, error)
+	createAccountFunc      func(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error)
 }
 
 func (m *mockClient) CreateTransactions(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
@@ -19,6 +21,20 @@ func (m *mockClient) CreateTransactions(budgetID string, transactions []Transact
 		return m.createTransactionsFunc(budgetID, transactions)
 	}
 	return &CreateTransactionsResponse{}, nil
+}
+
+func (m *mockClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) {
+	if m.getAccountsFunc != nil {
+		return m.getAccountsFunc(budgetID)
+	}
+	return &GetAccountsResponse{}, nil
+}
+
+func (m *mockClient) CreateAccount(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error) {
+	if m.createAccountFunc != nil {
+		return m.createAccountFunc(budgetID, payload)
+	}
+	return &CreateAccountResponse{}, nil
 }
 
 func TestNewSyncer(t *testing.T) {

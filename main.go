@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -37,9 +38,35 @@ func NewChatDBFetcher(cfg *config.Config) *ChatDBFetcher {
 	}
 }
 
+// expandPath expands ~ to home directory in file paths
+func expandPath(path string) (string, error) {
+	if !strings.HasPrefix(path, "~") {
+		return path, nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	if path == "~" {
+		return homeDir, nil
+	}
+
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(homeDir, path[2:]), nil
+	}
+
+	return path, nil
+}
+
 // CheckDependencies verifies chat.db is accessible
 func (f *ChatDBFetcher) CheckDependencies() error {
-	dbPath := f.config.Bagoup.DBPath
+	dbPath, err := expandPath(f.config.Bagoup.DBPath)
+	if err != nil {
+		return err
+	}
+
 	if _, err := os.Stat(dbPath); err != nil {
 		return fmt.Errorf("chat.db not accessible at %s: %w", dbPath, err)
 	}
@@ -48,7 +75,12 @@ func (f *ChatDBFetcher) CheckDependencies() error {
 
 // FetchMessages reads messages directly from chat.db
 func (f *ChatDBFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
-	reader, err := chatdb.NewReader(f.config.Bagoup.DBPath, f.config.Senders)
+	dbPath, err := expandPath(f.config.Bagoup.DBPath)
+	if err != nil {
+		return nil, func() {}, err
+	}
+
+	reader, err := chatdb.NewReader(dbPath, f.config.Senders)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("failed to open chat.db: %w", err)
 	}

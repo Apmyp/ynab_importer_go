@@ -55,7 +55,11 @@ func (f *BagoupFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
 	}
 
 	cleanup := func() {
-		f.runner.Cleanup()
+		if err := f.runner.Cleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup temporary directory %s: %v\n", outputDir, err)
+		} else {
+			fmt.Printf("Cleaned up temporary directory %s\n", outputDir)
+		}
 	}
 
 	messages, err := f.runner.ReadAllMessages()

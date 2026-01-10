@@ -130,3 +130,50 @@ func TestLoad_DefaultValues(t *testing.T) {
 		t.Errorf("expected default data_file_path 'ynab_importer_go_data.json', got %q", cfg.DataFilePath)
 	}
 }
+
+func TestLoad_WithYNABConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	content := `{
+  "senders": ["102"],
+  "bagoup": {
+    "db_path": "~/Library/Messages/chat.db"
+  },
+  "ynab": {
+    "budget_id": "test-budget-id",
+    "start_date": "2026-01-01",
+    "accounts": [
+      {"ynab_account_id": "account-1", "last4": "1234"},
+      {"ynab_account_id": "account-2", "last4": "5678"}
+    ]
+  }
+}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.YNAB.BudgetID != "test-budget-id" {
+		t.Errorf("BudgetID = %v, want test-budget-id", cfg.YNAB.BudgetID)
+	}
+
+	if cfg.YNAB.StartDate != "2026-01-01" {
+		t.Errorf("StartDate = %v, want 2026-01-01", cfg.YNAB.StartDate)
+	}
+
+	if len(cfg.YNAB.Accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(cfg.YNAB.Accounts))
+	}
+
+	if cfg.YNAB.Accounts[0].YNABAccountID != "account-1" {
+		t.Errorf("Account 0 ID = %v, want account-1", cfg.YNAB.Accounts[0].YNABAccountID)
+	}
+
+	if cfg.YNAB.Accounts[0].Last4 != "1234" {
+		t.Errorf("Account 0 Last4 = %v, want 1234", cfg.YNAB.Accounts[0].Last4)
+	}
+}

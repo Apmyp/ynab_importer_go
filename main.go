@@ -13,6 +13,7 @@ import (
 	"github.com/apmyp/ynab_importer_go/exchangerate"
 	"github.com/apmyp/ynab_importer_go/template"
 	"github.com/apmyp/ynab_importer_go/worker"
+	"github.com/apmyp/ynab_importer_go/ynab"
 )
 
 // MessageFetcher defines the interface for fetching messages
@@ -148,6 +149,8 @@ func Run(args []string) error {
 	switch command {
 	case "missing_templates":
 		return app.runMissingTemplates()
+	case "ynab_sync":
+		return app.runYNABSync()
 	case "default":
 		return app.runDefault()
 	default:
@@ -346,6 +349,108 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 			Currency: app.config.DefaultCurrency,
 		}
 	}
+}
+
+// runYNABSync synchronizes transactions to YNAB
+func (app *App) runYNABSync() error {
+	// Validate YNAB configuration
+	if app.config.YNAB.BudgetID == "" {
+		return fmt.Errorf("YNAB budget_id not configured")
+	}
+	if len(app.config.YNAB.Accounts) == 0 {
+		return fmt.Errorf("YNAB accounts not configured")
+	}
+	if app.config.YNAB.StartDate == "" {
+		return fmt.Errorf("YNAB start_date not configured")
+	}
+
+	// Parse start date
+	startDate, err := time.Parse("2006-01-02", app.config.YNAB.StartDate)
+	if err != nil {
+		return fmt.Errorf("invalid YNAB start_date format: %w", err)
+	}
+
+	// Fetch messages
+	messages, cleanup, err := app.fetchMessages()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	// Parse messages in parallel
+	parsedMessages := make([]*ParsedMessage, len(messages))
+	var mu sync.Mutex
+
+	app.pool.Map(len(messages), func(i int) {
+		parsed := app.parseMessage(messages[i])
+		mu.Lock()
+		parsedMessages[i] = parsed
+		mu.Unlock()
+	})
+
+	// Convert foreign currencies to MDL
+	app.convertTransactions(parsedMessages)
+
+	// Filter to only include transactions with templates
+	var filteredMessages []*bagoup.Message
+	var filteredTransactions []*template.Transaction
+	for _, pm := range parsedMessages {
+		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
+			// Only include MDL transactions
+			if pm.Transaction.Converted.Currency == "MDL" {
+				filteredMessages = append(filteredMessages, pm.Message)
+				filteredTransactions = append(filteredTransactions, pm.Transaction)
+			}
+		}
+	}
+
+	fmt.Printf("Found %d MDL transactions to sync\n", len(filteredTransactions))
+
+	// Initialize YNAB components
+	apiKey := os.Getenv("YNAB_API_KEY")
+	if apiKey == "" {
+		return fmt.Errorf("YNAB_API_KEY environment variable not set")
+	}
+
+	syncStore, err := ynab.NewSyncStore(app.config.DataFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize sync store: %w", err)
+	}
+	defer syncStore.Close()
+
+	client := ynab.NewHTTPClient(apiKey)
+
+	// Convert config accounts to ynab accounts
+	ynabAccounts := make([]ynab.YNABAccount, len(app.config.YNAB.Accounts))
+	for i, acc := range app.config.YNAB.Accounts {
+		ynabAccounts[i] = ynab.YNABAccount{
+			YNABAccountID: acc.YNABAccountID,
+			Last4:         acc.Last4,
+		}
+	}
+
+	mapper := ynab.NewMapper(ynabAccounts)
+	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate)
+
+	// Sync transactions
+	result, err := syncer.Sync(filteredMessages, filteredTransactions)
+	if err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+
+	// Display results
+	fmt.Printf("\nSync Results:\n")
+	fmt.Printf("  Total transactions: %d\n", result.Total)
+	fmt.Printf("  Synced: %d\n", result.Synced)
+	fmt.Printf("  Skipped: %d\n", result.Skipped)
+	if len(result.Failed) > 0 {
+		fmt.Printf("  Failed: %d\n", len(result.Failed))
+		for _, failure := range result.Failed {
+			fmt.Printf("    - %s\n", failure)
+		}
+	}
+
+	return nil
 }
 
 func main() {

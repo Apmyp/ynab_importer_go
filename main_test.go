@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/apmyp/ynab_importer_go/bagoup"
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/template"
+	_ "modernc.org/sqlite"
 )
 
 // MockFetcher is a test double for MessageFetcher
@@ -432,16 +434,123 @@ func TestApp_runDefault_MultipleSenders(t *testing.T) {
 	}
 }
 
-func TestBagoupFetcher_CheckDependencies(t *testing.T) {
+func TestChatDBFetcher_CheckDependencies(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},
+		Bagoup: config.BagoupConfig{
+			DBPath: "/nonexistent/path/chat.db",
+		},
 	}
 
-	fetcher := NewBagoupFetcher(cfg)
+	fetcher := NewChatDBFetcher(cfg)
 	err := fetcher.CheckDependencies()
-	// Should succeed if bagoup is installed
+	if err == nil {
+		t.Error("CheckDependencies() should return error for non-existent database")
+	}
+}
+
+func TestChatDBFetcher_CheckDependencies_ValidPath(t *testing.T) {
+	// Create temp database
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "chat.db")
+	if err := os.WriteFile(dbPath, []byte{}, 0644); err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		Bagoup: config.BagoupConfig{
+			DBPath: dbPath,
+		},
+	}
+
+	fetcher := NewChatDBFetcher(cfg)
+	err := fetcher.CheckDependencies()
 	if err != nil {
-		t.Skipf("bagoup not installed: %v", err)
+		t.Errorf("CheckDependencies() error = %v", err)
+	}
+}
+
+func TestChatDBFetcher_FetchMessages_NonExistentDB(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		Bagoup: config.BagoupConfig{
+			DBPath: "/nonexistent/path/chat.db",
+		},
+	}
+
+	fetcher := NewChatDBFetcher(cfg)
+	_, _, err := fetcher.FetchMessages()
+	if err == nil {
+		t.Error("FetchMessages() should return error for non-existent database")
+	}
+}
+
+func TestChatDBFetcher_FetchMessages_ValidDB(t *testing.T) {
+	// Create a test database with the schema and some test messages
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "chat.db")
+
+	// Use SQL to create a minimal Messages database
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	// Create schema
+	_, err = db.Exec(`
+		CREATE TABLE handle (
+			ROWID INTEGER PRIMARY KEY,
+			id TEXT
+		);
+		CREATE TABLE message (
+			ROWID INTEGER PRIMARY KEY,
+			handle_id INTEGER,
+			text TEXT,
+			date INTEGER,
+			is_from_me INTEGER
+		);
+	`)
+	if err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Insert test data
+	_, err = db.Exec(`
+		INSERT INTO handle (ROWID, id) VALUES (1, '102');
+		INSERT INTO message (ROWID, handle_id, text, date, is_from_me)
+		VALUES (1, 1, 'Test message', 704823707000000000, 0);
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert test data: %v", err)
+	}
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		Bagoup: config.BagoupConfig{
+			DBPath: dbPath,
+		},
+	}
+
+	fetcher := NewChatDBFetcher(cfg)
+	messages, cleanup, err := fetcher.FetchMessages()
+	if err != nil {
+		t.Fatalf("FetchMessages() error = %v", err)
+	}
+	defer cleanup()
+
+	if len(messages) != 1 {
+		t.Errorf("expected 1 message, got %d", len(messages))
+	}
+
+	if len(messages) > 0 {
+		if messages[0].Sender != "102" {
+			t.Errorf("expected sender '102', got %q", messages[0].Sender)
+		}
+		if messages[0].Content != "Test message" {
+			t.Errorf("expected content 'Test message', got %q", messages[0].Content)
+		}
 	}
 }
 

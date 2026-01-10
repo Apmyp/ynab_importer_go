@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -396,6 +397,11 @@ func (app *App) runYNABSync() error {
 	var filteredTransactions []*template.Transaction
 	for _, pm := range parsedMessages {
 		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
+			// Skip declined transactions
+			if strings.HasPrefix(pm.Transaction.Status, "Decline") {
+				continue
+			}
+
 			// Only include MDL transactions
 			if pm.Transaction.Converted.Currency == "MDL" {
 				filteredMessages = append(filteredMessages, pm.Message)

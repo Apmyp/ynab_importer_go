@@ -430,6 +430,39 @@ func TestDebitareTemplate_Parse(t *testing.T) {
 	}
 }
 
+func TestDebitareTemplate_Parse_WithCommaInDetalii(t *testing.T) {
+	tmpl := NewDebitareTemplate()
+	content := "Debitare cont Card 9..7890, Data 19.06.2024 16:41:08, Suma 876.6 MDL, Detalii Plata OP-OP8888777766665555/ INTERN : PENTRU MPAY, Contrac, Disponibil 7100.40 MDL"
+
+	tx, err := tmpl.Parse(content)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if tx.Operation != "Debitare" {
+		t.Errorf("expected operation 'Debitare', got %q", tx.Operation)
+	}
+	if tx.Card != "9..7890" {
+		t.Errorf("expected card '9..7890', got %q", tx.Card)
+	}
+	if tx.DateTime != "19.06.2024 16:41:08" {
+		t.Errorf("expected datetime '19.06.2024 16:41:08', got %q", tx.DateTime)
+	}
+	if tx.Amount != 876.6 {
+		t.Errorf("expected amount 876.6, got %f", tx.Amount)
+	}
+	if tx.Currency != "MDL" {
+		t.Errorf("expected currency 'MDL', got %q", tx.Currency)
+	}
+	if tx.Balance != 7100.40 {
+		t.Errorf("expected balance 7100.40, got %f", tx.Balance)
+	}
+	expectedDetails := "Plata OP-OP8888777766665555/ INTERN : PENTRU MPAY, Contrac"
+	if tx.Address != expectedDetails {
+		t.Errorf("expected address (details) %q, got %q", expectedDetails, tx.Address)
+	}
+}
+
 func TestDebitareTemplate_Name(t *testing.T) {
 	tmpl := NewDebitareTemplate()
 	if tmpl.Name() != "Debitare" {

@@ -27,7 +27,7 @@ Run a user story using Ralph loop with feature-dev and TDD workflow.
 5. Start Ralph loop with the story task. Use `/ralph-loop` command:
 
    ```
-   /ralph-loop "<STORY_PROMPT>" --completion-promise "STORY COMPLETE" --max-iterations 50
+   /ralph-loop "<STORY_PROMPT>" --completion-promise "STORY COMPLETE" --max-iterations 10
    ```
 
    Where `<STORY_PROMPT>` is built from the story content below.

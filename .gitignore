@@ -1,0 +1,6 @@
+# Claude Code local settings
+.claude/settings.local.json
+.claude/ralph-loop.local.md
+
+# Go
+coverage.out

@@ -881,6 +881,65 @@ func TestApp_runYNABSync_OnlyNonMDLTransactions(t *testing.T) {
 	}
 }
 
+func TestApp_runYNABSync_SkipsDeclinedTransactions(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+
+	// Set API key
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "9999"}}, // Non-matching card
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+				Sender:    "102",
+				Content: `Op: Tovary i uslugi
+Karta: *1234
+Status: Odobrena
+Summa: 100 MDL
+Dost: 1000,00
+Data/vremya: 10.01.26 10:00
+Adres: TEST SHOP`,
+			},
+			{
+				Timestamp: time.Date(2026, 1, 10, 11, 0, 0, 0, time.UTC),
+				Sender:    "102",
+				Content: `Op: Tovary i uslugi
+Karta: *1234
+Status: Decline§TranNotPermToCardHolder
+Summa: 200 MDL
+Dost: 900,00
+Data/vremya: 10.01.26 11:00
+Adres: DECLINED SHOP`,
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runYNABSync()
+	// Should succeed with 0 synced (1 approved but no account match + 1 declined filtered)
+	if err != nil {
+		t.Errorf("runYNABSync() should succeed with declined transactions filtered, got error: %v", err)
+	}
+}
+
 func TestApp_convertTransactions_NilConverter(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},

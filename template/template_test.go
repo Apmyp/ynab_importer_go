@@ -955,7 +955,7 @@ func TestMatcher_ShouldIgnore(t *testing.T) {
 		},
 		{
 			name:       "Apple Pay notification",
-			content:    "Cardul Eximbank ****6345 a fost adaugat cu success in Apple Pay.l",
+			content:    "Cardul Eximbank ****7890 a fost adaugat cu success in Apple Pay.l",
 			wantIgnore: true,
 		},
 		{

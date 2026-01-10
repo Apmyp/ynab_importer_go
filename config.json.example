@@ -1,0 +1,23 @@
+{
+  "senders": ["102", "EXIMBANK"],
+  "bagoup": {
+    "db_path": "~/Library/Messages/chat.db",
+    "separate_chats": true
+  },
+  "default_currency": "MDL",
+  "data_file_path": "ynab_importer_go_data.json",
+  "ynab": {
+    "budget_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "start_date": "2025-01-01",
+    "accounts": [
+      {
+        "ynab_account_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "last4": "1234"
+      },
+      {
+        "ynab_account_id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+        "last4": "5678"
+      }
+    ]
+  }
+}

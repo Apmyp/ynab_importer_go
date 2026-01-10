@@ -344,12 +344,28 @@ func NewMatcher() *Matcher {
 			NewSuplinireTemplate(),
 		},
 		ignorePatterns: []string{
+			// MAIB messages
 			"Vas privetstvuet servis opoveshenia ot MAIB",
 			"Oper.: Ostatok",
+			// Eximbank auth/OTP messages
 			"Autentificarea Dvs. in sistemul Eximbank Online a fost inregistrata la",
 			"Parola de unica folosinta pentru tranzactia cu ID-ul",
 			"OTP-ul pentru Plati din Exim Personal este",
 			"Va multumim ca ati ales serviciul Eximbank SMS Info.",
+			"Parola de Unica Folosinta (OTP) a Dvs. pentru logare este",
+			"Parola:",     // Covers "Parola:XXXXXX Card X..XXXX" patterns
+			"Parola Dvs.", // Covers "Parola Dvs. este XXXXXXXX"
+			// Transaction status messages to ignore
+			"Tranzactie esuata,",
+			"Tranzactia din", // Eximbank transfer confirmations
+			"Anulare tranzactie",
+			// Promotional/marketing messages
+			"Acesta este momentul pe care il asteptai!",
+			"Vrei un card pentru copilul tau?",
+			"Refinanteaza creditele de consum de la alte",
+			"Profita acum! Credit PERSONAL sau MAGNIFIC",
+			// Maintenance notifications
+			"In data de",
 		},
 	}
 }

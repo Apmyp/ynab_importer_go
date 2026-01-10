@@ -808,8 +808,78 @@ func TestMatcher_ShouldIgnore(t *testing.T) {
 			wantIgnore: true,
 		},
 		{
+			name:       "OTP for login",
+			content:    "Parola de Unica Folosinta (OTP) a Dvs. pentru logare este 123456",
+			wantIgnore: true,
+		},
+		{
+			name:       "Parola with card number",
+			content:    "Parola:219281 Card 9..7890",
+			wantIgnore: true,
+		},
+		{
+			name:       "Parola Dvs password",
+			content:    "Parola Dvs. este aP1qaBkI",
+			wantIgnore: true,
+		},
+		{
+			name:       "Failed transaction",
+			content:    "Tranzactie esuata, Data 13.04.2024 13:20:30, Card 9..7890",
+			wantIgnore: true,
+		},
+		{
+			name:       "Eximbank transfer confirmation",
+			content:    "Tranzactia din 29/05/2023 din contul ACC1234567MD4 in contul MD99XX000000011111111111 in suma de 5000.00 MDL a fost Executata",
+			wantIgnore: true,
+		},
+		{
+			name:       "Transaction cancellation",
+			content:    "Anulare tranzactie Card 9..7890",
+			wantIgnore: true,
+		},
+		{
+			name:       "Marketing promo 1",
+			content:    "Acesta este momentul pe care il asteptai! Oferim credite cu dobanda redusa.",
+			wantIgnore: true,
+		},
+		{
+			name:       "Marketing child card",
+			content:    "Vrei un card pentru copilul tau? Intra pe maib.md",
+			wantIgnore: true,
+		},
+		{
+			name:       "Marketing refinance",
+			content:    "Refinanteaza creditele de consum de la alte banci cu dobanzi mai mici",
+			wantIgnore: true,
+		},
+		{
+			name:       "Marketing credit promo",
+			content:    "Profita acum! Credit PERSONAL sau MAGNIFIC cu conditii avantajoase",
+			wantIgnore: true,
+		},
+		{
+			name:       "Maintenance notification",
+			content:    "In data de 29.11 la 10:00-12:00 vor fi lucrari de mentenanta la Internet Banking si Mobile Banking",
+			wantIgnore: true,
+		},
+		{
 			name:       "Valid MAIB transaction",
 			content:    "Op: Tovary i uslugi\nKarta: *1234\nStatus: Odobrena\nSumma: 34 MDL",
+			wantIgnore: false,
+		},
+		{
+			name:       "Valid Debitare transaction",
+			content:    "Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Test, Disponibil 100.00 MDL",
+			wantIgnore: false,
+		},
+		{
+			name:       "Valid Suplinire transaction",
+			content:    "Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 1000.00 MDL, Detalii Salary, Disponibil 2000.00 MDL",
+			wantIgnore: false,
+		},
+		{
+			name:       "Valid Tranzactie reusita",
+			content:    "Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie TEST, MDA, Disponibil 100.00 MDL",
 			wantIgnore: false,
 		},
 		{

@@ -445,3 +445,178 @@ func TestBagoupFetcher_CheckDependencies(t *testing.T) {
 		t.Skipf("bagoup not installed: %v", err)
 	}
 }
+
+func TestApp_runMissingTemplates_WithNewTemplates(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102", "EXIMBANK"},
+	}
+
+	now := time.Now()
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Test, Disponibil 100.00 MDL",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie TEST>CITY, MDA, Disponibil 100.00 MDL",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 1000.00 MDL, Detalii Salary, Disponibil 2000.00 MDL",
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runMissingTemplates()
+	if err != nil {
+		t.Errorf("runMissingTemplates() error = %v", err)
+	}
+}
+
+func TestApp_parseMessage_NewTemplates(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"EXIMBANK"},
+	}
+	app := NewApp(cfg)
+
+	testCases := []struct {
+		name        string
+		content     string
+		wantHasTmpl bool
+		wantOp      string
+	}{
+		{
+			name:        "Debitare message",
+			content:     "Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Test, Disponibil 100.00 MDL",
+			wantHasTmpl: true,
+			wantOp:      "Debitare",
+		},
+		{
+			name:        "Tranzactie reusita message",
+			content:     "Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie TEST>CITY, MDA, Disponibil 100.00 MDL",
+			wantHasTmpl: true,
+			wantOp:      "Tranzactie reusita",
+		},
+		{
+			name:        "Suplinire message",
+			content:     "Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 1000.00 MDL, Detalii Salary, Disponibil 2000.00 MDL",
+			wantHasTmpl: true,
+			wantOp:      "Suplinire",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := &bagoup.Message{
+				Timestamp: time.Now(),
+				Sender:    "EXIMBANK",
+				Content:   tc.content,
+			}
+			pm := app.parseMessage(msg)
+			if pm.HasTemplate != tc.wantHasTmpl {
+				t.Errorf("HasTemplate = %v, want %v", pm.HasTemplate, tc.wantHasTmpl)
+			}
+			if tc.wantHasTmpl && pm.Transaction != nil {
+				if pm.Transaction.Operation != tc.wantOp {
+					t.Errorf("Operation = %q, want %q", pm.Transaction.Operation, tc.wantOp)
+				}
+			}
+		})
+	}
+}
+
+func TestApp_runDefault_WithNewTemplates(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"EXIMBANK"},
+	}
+
+	now := time.Now()
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Test, Disponibil 100.00 MDL",
+			},
+			{
+				Timestamp: now.Add(-time.Hour),
+				Sender:    "EXIMBANK",
+				Content:   "Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 1000.00 MDL, Detalii Salary, Disponibil 2000.00 MDL",
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runDefault()
+	if err != nil {
+		t.Errorf("runDefault() error = %v", err)
+	}
+}
+
+func TestApp_runMissingTemplates_ExcludesIgnoredMessages(t *testing.T) {
+	cfg := &config.Config{
+		Senders: []string{"102", "EXIMBANK"},
+	}
+
+	now := time.Now()
+	mockFetcher := &MockFetcher{
+		messages: []*bagoup.Message{
+			{
+				Timestamp: now,
+				Sender:    "102",
+				Content:   "Vas privetstvuet servis opoveshenia ot MAIB\nProfili budet aktivirovan.",
+			},
+			{
+				Timestamp: now,
+				Sender:    "102",
+				Content:   "Oper.: Ostatok\nKarta: *1234",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Autentificarea Dvs. in sistemul Eximbank Online a fost inregistrata la 08.04.2024",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Parola de unica folosinta pentru tranzactia cu ID-ul 123456789 este 1234",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "OTP-ul pentru Plati din Exim Personal este 567890",
+			},
+			{
+				Timestamp: now,
+				Sender:    "EXIMBANK",
+				Content:   "Va multumim ca ati ales serviciul Eximbank SMS Info.",
+			},
+			{
+				Timestamp: now,
+				Sender:    "102",
+				Content:   "This is truly unknown message without template",
+			},
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, mockFetcher)
+
+	// Count messages that should be reported as missing templates
+	// Only the last message should be reported (ignored messages should not appear)
+	count := 0
+	for _, msg := range mockFetcher.messages {
+		if !app.matcher.ShouldIgnore(msg.Content) && app.matcher.FindTemplate(msg.Content) == nil {
+			count++
+		}
+	}
+
+	if count != 1 {
+		t.Errorf("expected 1 message without template (excluding ignored), got %d", count)
+	}
+}

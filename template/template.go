@@ -171,9 +171,166 @@ func (t *EximTransactionTemplate) Parse(content string) (*Transaction, error) {
 	}, nil
 }
 
+// DebitareTemplate handles Eximbank debit (withdrawal) messages
+type DebitareTemplate struct {
+	regex *regexp.Regexp
+}
+
+// NewDebitareTemplate creates a new Debitare template
+func NewDebitareTemplate() *DebitareTemplate {
+	return &DebitareTemplate{
+		// Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii ..., Disponibil 38400.60 MDL
+		regex: regexp.MustCompile(`Debitare cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii ([^,]+), Disponibil ([\d.]+)`),
+	}
+}
+
+// Name returns the template name
+func (t *DebitareTemplate) Name() string {
+	return "Debitare"
+}
+
+// Match returns true if this template matches the message
+func (t *DebitareTemplate) Match(content string) bool {
+	return t.regex.MatchString(content)
+}
+
+// Parse extracts transaction data from Debitare message
+func (t *DebitareTemplate) Parse(content string) (*Transaction, error) {
+	matches := t.regex.FindStringSubmatch(content)
+	if matches == nil {
+		return nil, errors.New("failed to parse Debitare message")
+	}
+
+	amount, err := strconv.ParseFloat(matches[3], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, err := strconv.ParseFloat(matches[6], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Transaction{
+		Operation:  "Debitare",
+		Card:       matches[1],
+		DateTime:   matches[2],
+		Amount:     amount,
+		Currency:   matches[4],
+		Address:    matches[5], // Using Address field for Detalii
+		Balance:    balance,
+		RawMessage: content,
+	}, nil
+}
+
+// TranzactieReusitaTemplate handles successful transaction messages (debit)
+type TranzactieReusitaTemplate struct {
+	regex *regexp.Regexp
+}
+
+// NewTranzactieReusitaTemplate creates a new TranzactieReusita template
+func NewTranzactieReusitaTemplate() *TranzactieReusitaTemplate {
+	return &TranzactieReusitaTemplate{
+		// Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie MAIB GROCERY STORE BETA>CHISINAU, MDA, Disponibil 31200.80 MDL
+		regex: regexp.MustCompile(`Tranzactie reusita, Data ([^,]+), Card ([^,]+), Suma ([\d.]+) (\w+), Locatie ([^,]+, \w+), Disponibil ([\d.]+)`),
+	}
+}
+
+// Name returns the template name
+func (t *TranzactieReusitaTemplate) Name() string {
+	return "TranzactieReusita"
+}
+
+// Match returns true if this template matches the message
+func (t *TranzactieReusitaTemplate) Match(content string) bool {
+	return t.regex.MatchString(content)
+}
+
+// Parse extracts transaction data from TranzactieReusita message
+func (t *TranzactieReusitaTemplate) Parse(content string) (*Transaction, error) {
+	matches := t.regex.FindStringSubmatch(content)
+	if matches == nil {
+		return nil, errors.New("failed to parse TranzactieReusita message")
+	}
+
+	amount, err := strconv.ParseFloat(matches[3], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, err := strconv.ParseFloat(matches[6], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Transaction{
+		Operation:  "Tranzactie reusita",
+		DateTime:   matches[1],
+		Card:       matches[2],
+		Amount:     amount,
+		Currency:   matches[4],
+		Address:    matches[5], // Location
+		Balance:    balance,
+		RawMessage: content,
+	}, nil
+}
+
+// SuplinireTemplate handles card top-up/credit messages
+type SuplinireTemplate struct {
+	regex *regexp.Regexp
+}
+
+// NewSuplinireTemplate creates a new Suplinire template
+func NewSuplinireTemplate() *SuplinireTemplate {
+	return &SuplinireTemplate{
+		// Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 93719.33 MDL, Detalii Plata salariala luna aprilie, Disponibil 88700.25 MDL
+		regex: regexp.MustCompile(`Suplinire cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii ([^,]+), Disponibil ([\d.]+)`),
+	}
+}
+
+// Name returns the template name
+func (t *SuplinireTemplate) Name() string {
+	return "Suplinire"
+}
+
+// Match returns true if this template matches the message
+func (t *SuplinireTemplate) Match(content string) bool {
+	return t.regex.MatchString(content)
+}
+
+// Parse extracts transaction data from Suplinire message
+func (t *SuplinireTemplate) Parse(content string) (*Transaction, error) {
+	matches := t.regex.FindStringSubmatch(content)
+	if matches == nil {
+		return nil, errors.New("failed to parse Suplinire message")
+	}
+
+	amount, err := strconv.ParseFloat(matches[3], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, err := strconv.ParseFloat(matches[6], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Transaction{
+		Operation:  "Suplinire",
+		Card:       matches[1],
+		DateTime:   matches[2],
+		Amount:     amount,
+		Currency:   matches[4],
+		Address:    matches[5], // Using Address field for Detalii
+		Balance:    balance,
+		RawMessage: content,
+	}, nil
+}
+
 // Matcher holds all templates and finds matching ones
 type Matcher struct {
-	templates []Template
+	templates      []Template
+	ignorePatterns []string
 }
 
 // NewMatcher creates a new Matcher with all registered templates
@@ -182,8 +339,29 @@ func NewMatcher() *Matcher {
 		templates: []Template{
 			NewMAIBTemplate(),
 			NewEximTransactionTemplate(),
+			NewDebitareTemplate(),
+			NewTranzactieReusitaTemplate(),
+			NewSuplinireTemplate(),
+		},
+		ignorePatterns: []string{
+			"Vas privetstvuet servis opoveshenia ot MAIB",
+			"Oper.: Ostatok",
+			"Autentificarea Dvs. in sistemul Eximbank Online a fost inregistrata la",
+			"Parola de unica folosinta pentru tranzactia cu ID-ul",
+			"OTP-ul pentru Plati din Exim Personal este",
+			"Va multumim ca ati ales serviciul Eximbank SMS Info.",
 		},
 	}
+}
+
+// ShouldIgnore returns true if the message matches an ignore pattern
+func (m *Matcher) ShouldIgnore(content string) bool {
+	for _, pattern := range m.ignorePatterns {
+		if strings.Contains(content, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // FindTemplate returns the first matching template for the content

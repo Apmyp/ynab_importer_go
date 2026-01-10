@@ -194,7 +194,7 @@ func (app *App) runDefault() error {
 	return nil
 }
 
-// runMissingTemplates outputs messages without matching templates
+// runMissingTemplates outputs messages without matching templates (excluding ignored messages)
 func (app *App) runMissingTemplates() error {
 	messages, cleanup, err := app.fetchMessages()
 	if err != nil {
@@ -205,23 +205,32 @@ func (app *App) runMissingTemplates() error {
 	fmt.Println("Messages without matching templates:")
 	fmt.Println("=====================================")
 
-	// Check templates in parallel
-	hasTemplate := make([]bool, len(messages))
+	// Check templates and ignore patterns in parallel
+	type checkResult struct {
+		hasTemplate  bool
+		shouldIgnore bool
+	}
+	results := make([]checkResult, len(messages))
 	app.pool.Map(len(messages), func(i int) {
-		tmpl := app.matcher.FindTemplate(messages[i].Content)
-		hasTemplate[i] = (tmpl != nil)
+		content := messages[i].Content
+		results[i] = checkResult{
+			hasTemplate:  app.matcher.FindTemplate(content) != nil,
+			shouldIgnore: app.matcher.ShouldIgnore(content),
+		}
 	})
 
 	count := 0
 	for i, msg := range messages {
-		if !hasTemplate[i] {
-			count++
-			fmt.Printf("\n[%s] %s:\n%s\n",
-				msg.Timestamp.Format("2006-01-02 15:04:05"),
-				msg.Sender,
-				msg.Content)
-			fmt.Println("---")
+		// Skip messages that have a template or should be ignored
+		if results[i].hasTemplate || results[i].shouldIgnore {
+			continue
 		}
+		count++
+		fmt.Printf("\n[%s] %s:\n%s\n",
+			msg.Timestamp.Format("2006-01-02 15:04:05"),
+			msg.Sender,
+			msg.Content)
+		fmt.Println("---")
 	}
 
 	fmt.Printf("\nTotal messages without templates: %d\n", count)

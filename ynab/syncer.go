@@ -11,6 +11,8 @@ import (
 // YNABClient defines the interface for YNAB API operations
 type YNABClient interface {
 	CreateTransactions(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error)
+	GetAccounts(budgetID string) (*GetAccountsResponse, error)
+	CreateAccount(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error)
 }
 
 // Syncer orchestrates syncing transactions to YNAB

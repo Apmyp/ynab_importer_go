@@ -60,3 +60,12 @@ func Load(path string) (*Config, error) {
 func (c *Config) GetSenders() []string {
 	return c.Senders
 }
+
+// Save writes the configuration to a file
+func (c *Config) Save(path string) error {
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}

@@ -591,6 +591,44 @@ func TestSuplinireTemplate_Name(t *testing.T) {
 	}
 }
 
+func TestSuplinireTemplate_Parse_WithoutDisponibil(t *testing.T) {
+	tmpl := NewSuplinireTemplate()
+	content := "Suplinire cont Card 9..7890, Data 13.01.2025 16:13:56, Suma 990 RUB, Detalii ONLINE SERVICE GAMMA> 44712345678, GBR"
+
+	tx, err := tmpl.Parse(content)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if tx.Operation != "Suplinire" {
+		t.Errorf("expected operation 'Suplinire', got %q", tx.Operation)
+	}
+	if tx.Card != "9..7890" {
+		t.Errorf("expected card '9..7890', got %q", tx.Card)
+	}
+	if tx.DateTime != "13.01.2025 16:13:56" {
+		t.Errorf("expected datetime '13.01.2025 16:13:56', got %q", tx.DateTime)
+	}
+	if tx.Amount != 990 {
+		t.Errorf("expected amount 990, got %f", tx.Amount)
+	}
+	if tx.Currency != "RUB" {
+		t.Errorf("expected currency 'RUB', got %q", tx.Currency)
+	}
+	if tx.Balance != 0 {
+		t.Errorf("expected balance 0 (not present), got %f", tx.Balance)
+	}
+}
+
+func TestSuplinireTemplate_Match_WithoutDisponibil(t *testing.T) {
+	tmpl := NewSuplinireTemplate()
+	content := "Suplinire cont Card 9..7890, Data 13.01.2025 16:13:56, Suma 990 RUB, Detalii ONLINE SERVICE GAMMA> 44712345678, GBR"
+
+	if !tmpl.Match(content) {
+		t.Error("SuplinireTemplate should match message without Disponibil")
+	}
+}
+
 func TestSuplinireTemplate_Parse_NonMatching(t *testing.T) {
 	tmpl := NewSuplinireTemplate()
 	_, err := tmpl.Parse("Not a suplinire message")
@@ -881,6 +919,16 @@ func TestMatcher_ShouldIgnore(t *testing.T) {
 			name:       "Valid Tranzactie reusita",
 			content:    "Tranzactie reusita, Data 13.04.2024 13:20:30, Card 9..7890, Suma 91.91 MDL, Locatie TEST, MDA, Disponibil 100.00 MDL",
 			wantIgnore: false,
+		},
+		{
+			name:       "Apple Pay notification",
+			content:    "Cardul Eximbank ****6345 a fost adaugat cu success in Apple Pay.l",
+			wantIgnore: true,
+		},
+		{
+			name:       "User own message from bagoup",
+			content:    "[2025-06-16 18:23:40] Me: A",
+			wantIgnore: true,
 		},
 		{
 			name:       "Random unknown message",

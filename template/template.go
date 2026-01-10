@@ -284,7 +284,8 @@ type SuplinireTemplate struct {
 func NewSuplinireTemplate() *SuplinireTemplate {
 	return &SuplinireTemplate{
 		// Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 93719.33 MDL, Detalii Plata salariala luna aprilie, Disponibil 88700.25 MDL
-		regex: regexp.MustCompile(`Suplinire cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii ([^,]+), Disponibil ([\d.]+)`),
+		// Also matches without Disponibil: Suplinire cont Card 9..7890, Data 13.01.2025 16:13:56, Suma 990 RUB, Detalii ONLINE SERVICE GAMMA> 44712345678, GBR
+		regex: regexp.MustCompile(`Suplinire cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii (.+?)(?:, Disponibil ([\d.]+) \w+)?$`),
 	}
 }
 
@@ -310,9 +311,12 @@ func (t *SuplinireTemplate) Parse(content string) (*Transaction, error) {
 		return nil, err
 	}
 
-	balance, err := strconv.ParseFloat(matches[6], 64)
-	if err != nil {
-		return nil, err
+	var balance float64
+	if len(matches) > 6 && matches[6] != "" {
+		balance, err = strconv.ParseFloat(matches[6], 64)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Transaction{
@@ -366,6 +370,10 @@ func NewMatcher() *Matcher {
 			"Profita acum! Credit PERSONAL sau MAGNIFIC",
 			// Maintenance notifications
 			"In data de",
+			// Apple Pay notifications
+			"Cardul Eximbank",
+			// User's own messages (from bagoup export)
+			"] Me:",
 		},
 	}
 }

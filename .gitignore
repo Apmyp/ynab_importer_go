@@ -11,3 +11,6 @@ coverage.out
 ynab_importer_go
 ynab_importer_go_data.json
 messages_*/
+
+# Config with sensitive data
+config.json

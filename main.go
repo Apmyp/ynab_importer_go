@@ -221,6 +221,10 @@ func (app *App) runMissingTemplates() error {
 
 	count := 0
 	for i, msg := range messages {
+		// Skip user's own messages (sender "Me" from bagoup)
+		if msg.Sender == "Me" {
+			continue
+		}
 		// Skip messages that have a template or should be ignored
 		if results[i].hasTemplate || results[i].shouldIgnore {
 			continue

@@ -98,11 +98,8 @@ func (m *Mapper) MapTransaction(msg *bagoup.Message, tx *template.Transaction) (
 		payeeName = "Unknown"
 	}
 
-	// Memo from operation and status
-	memo := tx.Operation
-	if tx.Status != "" {
-		memo = fmt.Sprintf("%s - %s", tx.Operation, tx.Status)
-	}
+	// Memo - only include unique/important information
+	memo := buildMemo(tx)
 
 	return &TransactionPayload{
 		AccountID: accountID,
@@ -113,6 +110,60 @@ func (m *Mapper) MapTransaction(msg *bagoup.Message, tx *template.Transaction) (
 		Cleared:   "cleared", // Bank transactions are cleared
 		ImportID:  importID,
 	}, nil
+}
+
+// buildMemo creates memo field, only including unique/important information
+// Returns empty string for standard repetitive messages
+func buildMemo(tx *template.Transaction) string {
+	// Standard operations that don't need to be in memo
+	standardOperations := []string{
+		"Tovary i uslugi",
+		"Debitare",
+		"Suplinire",
+		"Tranzactie reusita",
+	}
+
+	// Standard statuses that don't need to be in memo
+	standardStatuses := []string{
+		"Odobrena",
+		"",
+	}
+
+	// Check if operation is standard
+	operationIsStandard := false
+	for _, stdOp := range standardOperations {
+		if tx.Operation == stdOp {
+			operationIsStandard = true
+			break
+		}
+	}
+
+	// Check if status is standard
+	statusIsStandard := false
+	for _, stdStatus := range standardStatuses {
+		if tx.Status == stdStatus {
+			statusIsStandard = true
+			break
+		}
+	}
+
+	// If both operation and status are standard, return empty memo
+	if operationIsStandard && statusIsStandard {
+		return ""
+	}
+
+	// Build memo with only non-standard parts
+	var memoParts []string
+
+	if !operationIsStandard {
+		memoParts = append(memoParts, tx.Operation)
+	}
+
+	if !statusIsStandard {
+		memoParts = append(memoParts, tx.Status)
+	}
+
+	return strings.Join(memoParts, " - ")
 }
 
 // isDebit returns true if the operation represents a debit/spending

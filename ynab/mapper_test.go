@@ -24,6 +24,7 @@ func TestMapper_MatchAccount(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},
 		{YNABAccountID: "account-2", Last4: "5678"},
+		{YNABAccountID: "account-6345", Last4: "6345"},
 	}
 	mapper := NewMapper(accounts)
 
@@ -49,6 +50,12 @@ func TestMapper_MatchAccount(t *testing.T) {
 			name:    "match with different mask",
 			card:    "*1234",
 			want:    "account-1",
+			wantErr: false,
+		},
+		{
+			name:    "match card 6345",
+			card:    "9..6345",
+			want:    "account-6345",
 			wantErr: false,
 		},
 		{
@@ -240,5 +247,101 @@ func TestMapper_MapTransaction_NoAccountMatch(t *testing.T) {
 	_, err := mapper.MapTransaction(msg, tx)
 	if err == nil {
 		t.Error("MapTransaction() should return error when no account matches")
+	}
+}
+
+func TestBuildMemo_StandardTransaction(t *testing.T) {
+	// Standard operation + standard status = empty memo
+	tx := &template.Transaction{
+		Operation: "Tovary i uslugi",
+		Status:    "Odobrena",
+	}
+
+	memo := buildMemo(tx)
+	if memo != "" {
+		t.Errorf("buildMemo() = %q, want empty string for standard transaction", memo)
+	}
+}
+
+func TestBuildMemo_StandardOperationEmptyStatus(t *testing.T) {
+	// Standard operation + empty status = empty memo
+	tx := &template.Transaction{
+		Operation: "Debitare",
+		Status:    "",
+	}
+
+	memo := buildMemo(tx)
+	if memo != "" {
+		t.Errorf("buildMemo() = %q, want empty string", memo)
+	}
+}
+
+func TestBuildMemo_NonStandardStatus(t *testing.T) {
+	// Standard operation + non-standard status = status in memo
+	tx := &template.Transaction{
+		Operation: "Tovary i uslugi",
+		Status:    "Pending Review",
+	}
+
+	memo := buildMemo(tx)
+	if memo != "Pending Review" {
+		t.Errorf("buildMemo() = %q, want 'Pending Review'", memo)
+	}
+}
+
+func TestBuildMemo_NonStandardOperation(t *testing.T) {
+	// Non-standard operation + standard status = operation in memo
+	tx := &template.Transaction{
+		Operation: "Special Payment",
+		Status:    "Odobrena",
+	}
+
+	memo := buildMemo(tx)
+	if memo != "Special Payment" {
+		t.Errorf("buildMemo() = %q, want 'Special Payment'", memo)
+	}
+}
+
+func TestBuildMemo_BothNonStandard(t *testing.T) {
+	// Both non-standard = both in memo
+	tx := &template.Transaction{
+		Operation: "Special Payment",
+		Status:    "Requires Approval",
+	}
+
+	memo := buildMemo(tx)
+	if memo != "Special Payment - Requires Approval" {
+		t.Errorf("buildMemo() = %q, want 'Special Payment - Requires Approval'", memo)
+	}
+}
+
+func TestMapper_MapTransaction_StandardMemoIsEmpty(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts)
+
+	msg := &bagoup.Message{
+		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Tovary i uslugi",
+		Status:    "Odobrena",
+		Card:      "9..1234",
+		Converted: template.Amount{
+			Value:    100.00,
+			Currency: "MDL",
+		},
+		Address: "Test Shop",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.Memo != "" {
+		t.Errorf("Memo = %q, want empty string for standard transaction", payload.Memo)
 	}
 }

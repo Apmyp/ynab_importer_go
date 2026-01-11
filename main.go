@@ -110,41 +110,37 @@ type App struct {
 	converter *exchangerate.Converter
 }
 
-// newExchangeRateConverter creates a new exchange rate converter from config
-func newExchangeRateConverter(cfg *config.Config) *exchangerate.Converter {
+// NewApp creates a new application instance
+func NewApp(cfg *config.Config) *App {
 	store, err := exchangerate.NewStore(cfg.DataFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
 		store = nil
 	}
 
-	fetcher := exchangerate.NewFetcher()
-	return exchangerate.NewConverter(store, fetcher, cfg.DefaultCurrency)
-}
-
-// NewApp creates a new application instance
-func NewApp(cfg *config.Config) *App {
-	numWorkers := runtime.NumCPU()
-
 	return &App{
 		config:    cfg,
 		fetcher:   NewChatDBFetcher(cfg),
 		matcher:   template.NewMatcher(),
-		pool:      worker.NewPool(numWorkers),
-		converter: newExchangeRateConverter(cfg),
+		pool:      worker.NewPool(runtime.NumCPU()),
+		converter: exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
 	}
 }
 
 // NewAppWithFetcher creates a new application with a custom fetcher (for testing)
 func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
-	numWorkers := runtime.NumCPU()
+	store, err := exchangerate.NewStore(cfg.DataFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
+		store = nil
+	}
 
 	return &App{
 		config:    cfg,
 		fetcher:   fetcher,
 		matcher:   template.NewMatcher(),
-		pool:      worker.NewPool(numWorkers),
-		converter: newExchangeRateConverter(cfg),
+		pool:      worker.NewPool(runtime.NumCPU()),
+		converter: exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
 	}
 }
 
@@ -233,64 +229,110 @@ func (app *App) runDefault() error {
 			return msgs[i].Message.Timestamp.After(msgs[j].Message.Timestamp)
 		})
 
-		// Collect messages to display: 2 latest + 2 foreign currency
-		toDisplay := make([]*ParsedMessage, 0)
-		foreignCurrency := make([]*ParsedMessage, 0)
-
-		// First pass: collect 2 latest
-		for i := 0; i < len(msgs) && i < 2; i++ {
-			toDisplay = append(toDisplay, msgs[i])
-		}
-
-		// Second pass: collect foreign currency transactions (skip already displayed)
-		for i := 0; i < len(msgs) && len(foreignCurrency) < 2; i++ {
-			pm := msgs[i]
-			if pm.HasTemplate && pm.Transaction != nil && pm.Transaction.Original.Currency != app.config.DefaultCurrency {
-				// Check if this message is not already in toDisplay
-				alreadyDisplayed := false
-				for _, displayed := range toDisplay {
-					if displayed == pm {
-						alreadyDisplayed = true
-						break
-					}
-				}
-				if !alreadyDisplayed {
-					foreignCurrency = append(foreignCurrency, pm)
-				}
-			}
-		}
-
-		// Add foreign currency transactions to display list
-		toDisplay = append(toDisplay, foreignCurrency...)
+		// Collect messages to display: 2 latest + up to 2 foreign currency
+		toDisplay := selectMessagesToDisplay(msgs, app.config.DefaultCurrency)
 
 		// Display header
-		if len(foreignCurrency) > 0 {
-			fmt.Printf("\n=== %s (last 2 messages + %d foreign currency) ===\n", sender, len(foreignCurrency))
+		foreignCount := countForeignCurrency(toDisplay, app.config.DefaultCurrency)
+		if foreignCount > 0 {
+			fmt.Printf("\n=== %s (last 2 messages + %d foreign currency) ===\n", sender, foreignCount)
 		} else {
 			fmt.Printf("\n=== %s (last 2 messages) ===\n", sender)
 		}
 
 		// Display all collected messages
 		for _, pm := range toDisplay {
-			fmt.Printf("\n[%s]\n", pm.Message.Timestamp.Format("2006-01-02 15:04:05"))
-			if pm.HasTemplate && pm.Transaction != nil {
-				fmt.Printf("Operation: %s\n", pm.Transaction.Operation)
-				fmt.Printf("Amount: %.2f %s", pm.Transaction.Original.Value, pm.Transaction.Original.Currency)
-				if pm.Transaction.Converted.Currency != "" && pm.Transaction.Converted.Currency != pm.Transaction.Original.Currency {
-					fmt.Printf(" (%.2f %s)", pm.Transaction.Converted.Value, pm.Transaction.Converted.Currency)
-				}
-				fmt.Println()
-				fmt.Printf("Status: %s\n", pm.Transaction.Status)
-				if pm.Transaction.Address != "" {
-					fmt.Printf("Address: %s\n", pm.Transaction.Address)
-				}
-			} else {
-				fmt.Printf("(no template)\n%s\n", pm.Message.Content)
-			}
+			displayMessage(pm)
 		}
 	}
 
 	return nil
+}
+
+// selectMessagesToDisplay selects 2 latest + up to 2 foreign currency messages
+func selectMessagesToDisplay(msgs []*ParsedMessage, defaultCurrency string) []*ParsedMessage {
+	toDisplay := make([]*ParsedMessage, 0)
+
+	// First pass: collect 2 latest
+	for i := 0; i < len(msgs) && i < 2; i++ {
+		toDisplay = append(toDisplay, msgs[i])
+	}
+
+	// Second pass: collect up to 2 foreign currency transactions (skip already displayed)
+	foreignAdded := 0
+	for i := 0; i < len(msgs) && foreignAdded < 2; i++ {
+		pm := msgs[i]
+		if !isForeignCurrency(pm, defaultCurrency) {
+			continue
+		}
+
+		// Check if already in toDisplay
+		alreadyDisplayed := false
+		for _, displayed := range toDisplay {
+			if displayed == pm {
+				alreadyDisplayed = true
+				break
+			}
+		}
+
+		if !alreadyDisplayed {
+			toDisplay = append(toDisplay, pm)
+			foreignAdded++
+		}
+	}
+
+	return toDisplay
+}
+
+// isForeignCurrency checks if a message contains a foreign currency transaction
+func isForeignCurrency(pm *ParsedMessage, defaultCurrency string) bool {
+	return pm.HasTemplate &&
+		pm.Transaction != nil &&
+		pm.Transaction.Original.Currency != defaultCurrency
+}
+
+// countForeignCurrency counts foreign currency transactions in the display list
+func countForeignCurrency(msgs []*ParsedMessage, defaultCurrency string) int {
+	count := 0
+	displayed := make(map[*ParsedMessage]bool)
+
+	// Mark first 2 as already displayed
+	for i := 0; i < len(msgs) && i < 2; i++ {
+		displayed[msgs[i]] = true
+	}
+
+	// Count foreign currency messages that weren't in first 2
+	for _, pm := range msgs {
+		if !displayed[pm] && isForeignCurrency(pm, defaultCurrency) {
+			count++
+		}
+	}
+
+	return count
+}
+
+// displayMessage displays a single parsed message
+func displayMessage(pm *ParsedMessage) {
+	fmt.Printf("\n[%s]\n", pm.Message.Timestamp.Format("2006-01-02 15:04:05"))
+
+	if !pm.HasTemplate || pm.Transaction == nil {
+		fmt.Printf("(no template)\n%s\n", pm.Message.Content)
+		return
+	}
+
+	tx := pm.Transaction
+	fmt.Printf("Operation: %s\n", tx.Operation)
+	fmt.Printf("Amount: %.2f %s", tx.Original.Value, tx.Original.Currency)
+
+	if tx.Converted.Currency != "" && tx.Converted.Currency != tx.Original.Currency {
+		fmt.Printf(" (%.2f %s)", tx.Converted.Value, tx.Converted.Currency)
+	}
+	fmt.Println()
+
+	fmt.Printf("Status: %s\n", tx.Status)
+	if tx.Address != "" {
+		fmt.Printf("Address: %s\n", tx.Address)
+	}
 }
 
 // runMissingTemplates outputs messages without matching templates (excluding ignored messages)
@@ -355,6 +397,20 @@ func (app *App) parseMessage(msg *bagoup.Message) *ParsedMessage {
 	}
 }
 
+// validateYNABConfig validates YNAB configuration
+func (app *App) validateYNABConfig() error {
+	if app.config.YNAB.BudgetID == "" {
+		return fmt.Errorf("YNAB budget_id not configured")
+	}
+	if len(app.config.YNAB.Accounts) == 0 {
+		return fmt.Errorf("YNAB accounts not configured")
+	}
+	if app.config.YNAB.StartDate == "" {
+		return fmt.Errorf("YNAB start_date not configured")
+	}
+	return nil
+}
+
 // convertTransactions converts all foreign currency transactions to default currency
 func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 	if app.converter == nil {
@@ -393,14 +449,8 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 // runYNABSync synchronizes transactions to YNAB
 func (app *App) runYNABSync() error {
 	// Validate YNAB configuration
-	if app.config.YNAB.BudgetID == "" {
-		return fmt.Errorf("YNAB budget_id not configured")
-	}
-	if len(app.config.YNAB.Accounts) == 0 {
-		return fmt.Errorf("YNAB accounts not configured")
-	}
-	if app.config.YNAB.StartDate == "" {
-		return fmt.Errorf("YNAB start_date not configured")
+	if err := app.validateYNABConfig(); err != nil {
+		return err
 	}
 
 	// Parse start date

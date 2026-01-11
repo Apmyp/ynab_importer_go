@@ -374,7 +374,7 @@ func NewMatcher() *Matcher {
 			"In data de",
 			// Apple Pay notifications
 			"Cardul Eximbank",
-			// User's own messages (from bagoup export)
+			// User's own messages
 			"] Me:",
 		},
 	}

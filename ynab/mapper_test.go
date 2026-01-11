@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 )
 
@@ -90,7 +90,7 @@ func TestMapper_MatchAccount(t *testing.T) {
 func TestMapper_GenerateImportID(t *testing.T) {
 	mapper := NewMapper([]YNABAccount{})
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
 		Sender:    "102",
 		Content:   "Test transaction",
@@ -144,7 +144,7 @@ func TestMapper_MapTransaction(t *testing.T) {
 	}
 	mapper := NewMapper(accounts)
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
 		Sender:    "102",
 	}
@@ -201,7 +201,7 @@ func TestMapper_MapTransaction_Suplinire(t *testing.T) {
 	}
 	mapper := NewMapper(accounts)
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
 	}
 
@@ -232,7 +232,7 @@ func TestMapper_MapTransaction_NoAccountMatch(t *testing.T) {
 	}
 	mapper := NewMapper(accounts)
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
 	}
 
@@ -321,7 +321,7 @@ func TestMapper_MapTransaction_StandardMemoIsEmpty(t *testing.T) {
 	}
 	mapper := NewMapper(accounts)
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
 	}
 

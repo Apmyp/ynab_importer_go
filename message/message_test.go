@@ -1,4 +1,4 @@
-package bagoup
+package message
 
 import (
 	"testing"

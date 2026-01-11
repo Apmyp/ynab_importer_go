@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/message"
 	_ "modernc.org/sqlite"
 )
 
@@ -43,9 +43,9 @@ func (r *Reader) Close() error {
 	return nil
 }
 
-func (r *Reader) FetchMessages() ([]*bagoup.Message, error) {
+func (r *Reader) FetchMessages() ([]*message.Message, error) {
 	if len(r.senders) == 0 {
-		return []*bagoup.Message{}, nil
+		return []*message.Message{}, nil
 	}
 
 	query := `
@@ -73,7 +73,7 @@ func (r *Reader) FetchMessages() ([]*bagoup.Message, error) {
 	}
 	defer rows.Close()
 
-	var messages []*bagoup.Message
+	var messages []*message.Message
 	for rows.Next() {
 		var (
 			rowID    int64
@@ -93,7 +93,7 @@ func (r *Reader) FetchMessages() ([]*bagoup.Message, error) {
 
 		timestamp := appleTimeToUnix(date)
 
-		messages = append(messages, &bagoup.Message{
+		messages = append(messages, &message.Message{
 			Timestamp: timestamp,
 			Sender:    sender,
 			Content:   text.String,

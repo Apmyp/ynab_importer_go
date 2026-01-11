@@ -1,5 +1,5 @@
-// Package bagoup provides message types for SMS/iMessage data
-package bagoup
+// Package message provides message types for SMS/iMessage data
+package message
 
 import (
 	"fmt"

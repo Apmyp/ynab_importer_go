@@ -958,7 +958,7 @@ func TestMatcher_ShouldIgnore(t *testing.T) {
 			wantIgnore: true,
 		},
 		{
-			name:       "User own message from bagoup",
+			name:       "User own message",
 			content:    "[2025-06-16 18:23:40] Me: A",
 			wantIgnore: true,
 		},

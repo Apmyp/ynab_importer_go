@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 )
 
@@ -44,7 +44,7 @@ func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID str
 }
 
 // Sync synchronizes transactions to YNAB
-func (s *Syncer) Sync(messages []*bagoup.Message, transactions []*template.Transaction) (*SyncResult, error) {
+func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Transaction) (*SyncResult, error) {
 	result := &SyncResult{
 		Total: len(transactions),
 	}

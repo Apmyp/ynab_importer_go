@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestIntegration_Run runs the actual program with real bagoup
+// TestIntegration_Run runs the actual program with real database
 // Run with: go test -tags=integration ./...
 func TestIntegration_Run(t *testing.T) {
-	// Skip if bagoup or database not available
+	// Skip if database not available
 	if os.Getenv("RUN_INTEGRATION") != "true" {
 		t.Skip("Skipping integration test. Set RUN_INTEGRATION=true to run")
 	}

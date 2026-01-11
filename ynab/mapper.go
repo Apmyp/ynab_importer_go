@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 )
 
@@ -53,7 +53,7 @@ func (m *Mapper) MatchAccount(tx *template.Transaction) (string, error) {
 }
 
 // GenerateImportID creates a unique, deterministic import ID for YNAB deduplication
-func (m *Mapper) GenerateImportID(msg *bagoup.Message, tx *template.Transaction) string {
+func (m *Mapper) GenerateImportID(msg *message.Message, tx *template.Transaction) string {
 	// Create a deterministic string from transaction key fields
 	// Format: timestamp:card:amount:payee
 	data := fmt.Sprintf("%d:%s:%.2f:%s",
@@ -72,7 +72,7 @@ func (m *Mapper) GenerateImportID(msg *bagoup.Message, tx *template.Transaction)
 }
 
 // MapTransaction converts a parsed transaction to YNAB format
-func (m *Mapper) MapTransaction(msg *bagoup.Message, tx *template.Transaction) (*TransactionPayload, error) {
+func (m *Mapper) MapTransaction(msg *message.Message, tx *template.Transaction) (*TransactionPayload, error) {
 	// Match account
 	accountID, err := m.MatchAccount(tx)
 	if err != nil {

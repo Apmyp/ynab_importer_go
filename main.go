@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
 	"github.com/apmyp/ynab_importer_go/chatdb"
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/exchangerate"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/system"
 	"github.com/apmyp/ynab_importer_go/template"
 	"github.com/apmyp/ynab_importer_go/worker"
@@ -21,7 +21,7 @@ import (
 
 // MessageFetcher defines the interface for fetching messages
 type MessageFetcher interface {
-	FetchMessages() ([]*bagoup.Message, func(), error)
+	FetchMessages() ([]*message.Message, func(), error)
 	CheckDependencies() error
 }
 
@@ -69,7 +69,7 @@ func (f *ChatDBFetcher) CheckDependencies() error {
 }
 
 // FetchMessages reads messages directly from chat.db
-func (f *ChatDBFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
+func (f *ChatDBFetcher) FetchMessages() ([]*message.Message, func(), error) {
 	dbPath, err := expandPath(f.config.DBPath)
 	if err != nil {
 		return nil, func() {}, err
@@ -141,7 +141,7 @@ func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
 
 // ParsedMessage holds a message and its parsed transaction (if any)
 type ParsedMessage struct {
-	Message     *bagoup.Message
+	Message     *message.Message
 	Transaction *template.Transaction
 	HasTemplate bool
 }
@@ -228,7 +228,7 @@ func (app *App) runMissingTemplates() error {
 
 	count := 0
 	for i, msg := range messages {
-		// Skip user's own messages (sender "Me" from bagoup)
+		// Skip user's own messages (sender "Me")
 		if msg.Sender == "Me" {
 			continue
 		}
@@ -249,12 +249,12 @@ func (app *App) runMissingTemplates() error {
 }
 
 // fetchMessages uses the fetcher to get messages
-func (app *App) fetchMessages() ([]*bagoup.Message, func(), error) {
+func (app *App) fetchMessages() ([]*message.Message, func(), error) {
 	return app.fetcher.FetchMessages()
 }
 
 // parseMessage attempts to parse a message using templates
-func (app *App) parseMessage(msg *bagoup.Message) *ParsedMessage {
+func (app *App) parseMessage(msg *message.Message) *ParsedMessage {
 	tx, err := app.matcher.Parse(msg.Content)
 	return &ParsedMessage{
 		Message:     msg,
@@ -371,7 +371,7 @@ func (app *App) runYNABSync() error {
 	app.convertTransactions(parsedMessages)
 
 	// Filter to only include transactions with templates
-	var filteredMessages []*bagoup.Message
+	var filteredMessages []*message.Message
 	var filteredTransactions []*template.Transaction
 	for _, pm := range parsedMessages {
 		if pm != nil && pm.HasTemplate && pm.Transaction != nil {

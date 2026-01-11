@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 )
 
@@ -78,7 +78,7 @@ func TestSyncer_Sync_FiltersByDate(t *testing.T) {
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
 
 	// Create messages - one before startDate, one after
-	messages := []*bagoup.Message{
+	messages := []*message.Message{
 		{Timestamp: time.Date(2025, 12, 31, 10, 0, 0, 0, time.UTC), Sender: "102"},
 		{Timestamp: time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC), Sender: "102"},
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC), Sender: "102"},
@@ -117,7 +117,7 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}})
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
 		Sender:    "102",
 	}
@@ -142,7 +142,7 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
 
-	result, err := syncer.Sync([]*bagoup.Message{msg}, []*template.Transaction{tx})
+	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -170,14 +170,14 @@ func TestSyncer_Sync_HandlesAPIError(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
 
-	msg := &bagoup.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
+	msg := &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
 	tx := &template.Transaction{
 		Card:      "9..1234",
 		Converted: template.Amount{Value: 100, Currency: "MDL"},
 		Operation: "Debitare",
 	}
 
-	_, err := syncer.Sync([]*bagoup.Message{msg}, []*template.Transaction{tx})
+	_, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
 	if err == nil {
 		t.Error("Sync() should return error when API call fails")
 	}
@@ -215,10 +215,10 @@ func TestSyncer_Sync_BatchesTransactions(t *testing.T) {
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
 
 	// Create 150 transactions
-	var messages []*bagoup.Message
+	var messages []*message.Message
 	var transactions []*template.Transaction
 	for i := 0; i < 150; i++ {
-		messages = append(messages, &bagoup.Message{
+		messages = append(messages, &message.Message{
 			Timestamp: time.Date(2026, 1, 10, 10, 0, i, 0, time.UTC),
 			Sender:    "102",
 		})

@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/bagoup"
 	"github.com/apmyp/ynab_importer_go/config"
+	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 	_ "modernc.org/sqlite"
 )
 
 // MockFetcher is a test double for MessageFetcher
 type MockFetcher struct {
-	messages      []*bagoup.Message
+	messages      []*message.Message
 	fetchErr      error
 	dependencyErr error
 	cleanupCalled bool
@@ -27,7 +27,7 @@ func (m *MockFetcher) CheckDependencies() error {
 	return m.dependencyErr
 }
 
-func (m *MockFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
+func (m *MockFetcher) FetchMessages() ([]*message.Message, func(), error) {
 	if m.fetchErr != nil {
 		return nil, func() {}, m.fetchErr
 	}
@@ -73,7 +73,7 @@ func TestNewAppWithFetcher(t *testing.T) {
 }
 
 func TestParsedMessage_WithTemplate(t *testing.T) {
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Now(),
 		Sender:    "102",
 		Content:   "Test content",
@@ -101,7 +101,7 @@ func TestParsedMessage_WithTemplate(t *testing.T) {
 }
 
 func TestParsedMessage_WithoutTemplate(t *testing.T) {
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Now(),
 		Sender:    "102",
 		Content:   "Test content",
@@ -168,7 +168,7 @@ func TestApp_parseMessage_WithMatchingTemplate(t *testing.T) {
 	}
 	app := NewApp(cfg, "")
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Now(),
 		Sender:    "102",
 		Content: `Op: Tovary i uslugi
@@ -200,7 +200,7 @@ func TestApp_parseMessage_WithoutMatchingTemplate(t *testing.T) {
 	}
 	app := NewApp(cfg, "")
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Now(),
 		Sender:    "102",
 		Content:   "Random message that doesn't match any template",
@@ -236,7 +236,7 @@ func TestApp_parseMessage_EximTransaction(t *testing.T) {
 	}
 	app := NewApp(cfg, "")
 
-	msg := &bagoup.Message{
+	msg := &message.Message{
 		Timestamp: time.Now(),
 		Sender:    "EXIMBANK",
 		Content:   "Tranzactia din 29/05/2023 din contul ACC1234567MD4 in contul MD99XX000000011111111111 in suma de 5000.00 MDL a fost Executata",
@@ -262,7 +262,7 @@ func TestApp_runMissingTemplates_WithMock(t *testing.T) {
 
 	now := time.Now()
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: now,
 				Sender:    "102",
@@ -478,7 +478,7 @@ func TestApp_runMissingTemplates_WithNewTemplates(t *testing.T) {
 
 	now := time.Now()
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: now,
 				Sender:    "EXIMBANK",
@@ -538,7 +538,7 @@ func TestApp_parseMessage_NewTemplates(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := &bagoup.Message{
+			msg := &message.Message{
 				Timestamp: time.Now(),
 				Sender:    "EXIMBANK",
 				Content:   tc.content,
@@ -563,7 +563,7 @@ func TestApp_runMissingTemplates_ExcludesIgnoredMessages(t *testing.T) {
 
 	now := time.Now()
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: now,
 				Sender:    "102",
@@ -625,7 +625,7 @@ func TestApp_runMissingTemplates_FiltersMeMessages(t *testing.T) {
 
 	now := time.Now()
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: now,
 				Sender:    "Me",
@@ -759,7 +759,7 @@ func TestApp_runYNABSync_MissingAPIKey(t *testing.T) {
 	}
 
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
 				Sender:    "102",
@@ -810,7 +810,7 @@ func TestApp_runYNABSync_NoTransactions(t *testing.T) {
 
 	// Empty messages - no transactions to sync
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{},
+		messages: []*message.Message{},
 	}
 
 	app := NewAppWithFetcher(cfg, mockFetcher)
@@ -846,7 +846,7 @@ func TestApp_runYNABSync_OnlyNonMDLTransactions(t *testing.T) {
 	}
 
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
 				Sender:    "102",
@@ -888,7 +888,7 @@ func TestApp_runYNABSync_SkipsDeclinedTransactions(t *testing.T) {
 	}
 
 	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
+		messages: []*message.Message{
 			{
 				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
 				Sender:    "102",
@@ -933,7 +933,7 @@ func TestApp_convertTransactions_NilConverter(t *testing.T) {
 
 	parsedMessages := []*ParsedMessage{
 		{
-			Message: &bagoup.Message{
+			Message: &message.Message{
 				Timestamp: time.Now(),
 				Sender:    "102",
 			},

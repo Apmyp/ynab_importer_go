@@ -20,7 +20,7 @@ type Reader struct {
 }
 
 func NewReader(dbPath string, senders []string) (*Reader, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

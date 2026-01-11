@@ -1,4 +1,3 @@
-// Package config handles loading application configuration
 package config
 
 import (
@@ -6,20 +5,17 @@ import (
 	"os"
 )
 
-// YNABAccount maps a card's last 4 digits to a YNAB account ID
 type YNABAccount struct {
 	YNABAccountID string `json:"ynab_account_id"`
 	Last4         string `json:"last4"`
 }
 
-// YNABConfig holds YNAB integration configuration
 type YNABConfig struct {
 	BudgetID  string        `json:"budget_id"`
 	Accounts  []YNABAccount `json:"accounts"`
-	StartDate string        `json:"start_date"` // YYYY-MM-DD format
+	StartDate string        `json:"start_date"`
 }
 
-// Config represents the application configuration
 type Config struct {
 	Senders         []string   `json:"senders"`
 	DBPath          string     `json:"db_path"`
@@ -28,7 +24,6 @@ type Config struct {
 	YNAB            YNABConfig `json:"ynab"`
 }
 
-// Load reads and parses a configuration file
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -50,7 +45,6 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the configuration to a file
 func (c *Config) Save(path string) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {

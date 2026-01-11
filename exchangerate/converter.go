@@ -24,7 +24,6 @@ func (c *Converter) GetOrFetchRate(date time.Time, currency string) (float64, er
 		return 1.0, nil
 	}
 
-	// Try to get from store if available
 	if c.store != nil {
 		rate, err := c.store.GetRate(date, currency)
 		if err == nil {
@@ -35,16 +34,13 @@ func (c *Converter) GetOrFetchRate(date time.Time, currency string) (float64, er
 		}
 	}
 
-	// Fetch from API
 	rates, err := c.fetcher.FetchRates(date)
 	if err != nil {
 		return 0, err
 	}
 
-	// Find the requested currency
 	for _, r := range rates {
 		if r.Currency == currency {
-			// Save to store if available
 			if c.store != nil {
 				c.store.SaveRate(r)
 			}

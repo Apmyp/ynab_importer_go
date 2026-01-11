@@ -9,17 +9,14 @@ import (
 	"time"
 )
 
-// ErrRateLimitExceeded is returned when YNAB API returns 429
 var ErrRateLimitExceeded = fmt.Errorf("YNAB rate limit exceeded (429)")
 
-// HTTPClient handles HTTP communication with YNAB API
 type HTTPClient struct {
 	baseURL    string
 	apiKey     []byte
 	httpClient *http.Client
 }
 
-// NewHTTPClient creates a new HTTP client for YNAB API
 func NewHTTPClient(apiKey string) *HTTPClient {
 	return &HTTPClient{
 		baseURL:    "https://api.youneedabudget.com/v1",
@@ -28,7 +25,6 @@ func NewHTTPClient(apiKey string) *HTTPClient {
 	}
 }
 
-// ClearAPIKey zeros out the API key in memory for security
 func (c *HTTPClient) ClearAPIKey() {
 	for i := range c.apiKey {
 		c.apiKey[i] = 0
@@ -36,7 +32,6 @@ func (c *HTTPClient) ClearAPIKey() {
 	c.apiKey = nil
 }
 
-// doRequest performs an HTTP request and handles common error cases
 func (c *HTTPClient) doRequest(req *http.Request) ([]byte, error) {
 	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 
@@ -74,7 +69,6 @@ func (c *HTTPClient) doRequest(req *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// CreateTransactions sends transactions to YNAB API
 func (c *HTTPClient) CreateTransactions(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
 	url := fmt.Sprintf("%s/budgets/%s/transactions", c.baseURL, budgetID)
 
@@ -105,7 +99,6 @@ func (c *HTTPClient) CreateTransactions(budgetID string, transactions []Transact
 	return &response, nil
 }
 
-// GetAccounts fetches all accounts for a budget
 func (c *HTTPClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) {
 	url := fmt.Sprintf("%s/budgets/%s/accounts", c.baseURL, budgetID)
 
@@ -126,7 +119,6 @@ func (c *HTTPClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) 
 	return &response, nil
 }
 
-// GetBudgets fetches all budgets
 func (c *HTTPClient) GetBudgets() (*GetBudgetsResponse, error) {
 	url := fmt.Sprintf("%s/budgets", c.baseURL)
 
@@ -147,7 +139,6 @@ func (c *HTTPClient) GetBudgets() (*GetBudgetsResponse, error) {
 	return &response, nil
 }
 
-// CreateAccount creates a new account in YNAB
 func (c *HTTPClient) CreateAccount(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error) {
 	url := fmt.Sprintf("%s/budgets/%s/accounts", c.baseURL, budgetID)
 

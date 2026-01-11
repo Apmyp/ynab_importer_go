@@ -19,25 +19,21 @@ import (
 	"github.com/apmyp/ynab_importer_go/ynab"
 )
 
-// MessageFetcher defines the interface for fetching messages
 type MessageFetcher interface {
 	FetchMessages() ([]*message.Message, func(), error)
 	CheckDependencies() error
 }
 
-// ChatDBFetcher implements MessageFetcher using direct SQLite access
 type ChatDBFetcher struct {
 	config *config.Config
 }
 
-// NewChatDBFetcher creates a new ChatDBFetcher
 func NewChatDBFetcher(cfg *config.Config) *ChatDBFetcher {
 	return &ChatDBFetcher{
 		config: cfg,
 	}
 }
 
-// expandPath expands ~ to home directory in file paths
 func expandPath(path string) (string, error) {
 	if !strings.HasPrefix(path, "~") {
 		return path, nil
@@ -55,7 +51,6 @@ func expandPath(path string) (string, error) {
 	return filepath.Join(homeDir, path[2:]), nil
 }
 
-// CheckDependencies verifies chat.db is accessible
 func (f *ChatDBFetcher) CheckDependencies() error {
 	dbPath, err := expandPath(f.config.DBPath)
 	if err != nil {
@@ -68,7 +63,6 @@ func (f *ChatDBFetcher) CheckDependencies() error {
 	return nil
 }
 
-// FetchMessages reads messages directly from chat.db
 func (f *ChatDBFetcher) FetchMessages() ([]*message.Message, func(), error) {
 	dbPath, err := expandPath(f.config.DBPath)
 	if err != nil {
@@ -96,7 +90,6 @@ func (f *ChatDBFetcher) FetchMessages() ([]*message.Message, func(), error) {
 	return messages, cleanup, nil
 }
 
-// App encapsulates the application logic
 type App struct {
 	config     *config.Config
 	configPath string
@@ -106,7 +99,6 @@ type App struct {
 	converter  *exchangerate.Converter
 }
 
-// createExchangeRateStore creates an exchange rate store with warning on failure
 func createExchangeRateStore(dataFilePath string) *exchangerate.Store {
 	store, err := exchangerate.NewStore(dataFilePath)
 	if err != nil {
@@ -116,7 +108,6 @@ func createExchangeRateStore(dataFilePath string) *exchangerate.Store {
 	return store
 }
 
-// NewApp creates a new application instance
 func NewApp(cfg *config.Config, configPath string) *App {
 	return &App{
 		config:     cfg,
@@ -128,7 +119,6 @@ func NewApp(cfg *config.Config, configPath string) *App {
 	}
 }
 
-// NewAppWithFetcher creates a new application with a custom fetcher (for testing)
 func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
 	return &App{
 		config:    cfg,
@@ -139,19 +129,16 @@ func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
 	}
 }
 
-// ParsedMessage holds a message and its parsed transaction (if any)
 type ParsedMessage struct {
 	Message     *message.Message
 	Transaction *template.Transaction
 	HasTemplate bool
 }
 
-// Run is the main application entry point
 func Run(args []string) error {
 	configPath := "config.json"
 	dataFilePath := ""
 
-	// Parse options
 	for len(args) > 0 {
 		if args[0] == "--config" && len(args) > 1 {
 			configPath = args[1]
@@ -169,19 +156,16 @@ func Run(args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	// Override data file path if specified via command line
 	if dataFilePath != "" {
 		cfg.DataFilePath = dataFilePath
 	}
 
 	app := NewApp(cfg, configPath)
 
-	// Check dependencies
 	if err := app.fetcher.CheckDependencies(); err != nil {
 		return err
 	}
 
-	// Determine command (ynab_sync is default)
 	command := "ynab_sync"
 	if len(args) > 0 {
 		command = args[0]
@@ -201,7 +185,6 @@ func Run(args []string) error {
 	}
 }
 
-// runMissingTemplates outputs messages without matching templates (excluding ignored messages)
 func (app *App) runMissingTemplates() error {
 	messages, cleanup, err := app.fetchMessages()
 	if err != nil {
@@ -212,7 +195,6 @@ func (app *App) runMissingTemplates() error {
 	fmt.Println("Messages without matching templates:")
 	fmt.Println("=====================================")
 
-	// Check templates and ignore patterns in parallel
 	type checkResult struct {
 		hasTemplate  bool
 		shouldIgnore bool
@@ -228,11 +210,9 @@ func (app *App) runMissingTemplates() error {
 
 	count := 0
 	for i, msg := range messages {
-		// Skip user's own messages (sender "Me")
 		if msg.Sender == "Me" {
 			continue
 		}
-		// Skip messages that have a template or should be ignored
 		if results[i].hasTemplate || results[i].shouldIgnore {
 			continue
 		}
@@ -248,12 +228,10 @@ func (app *App) runMissingTemplates() error {
 	return nil
 }
 
-// fetchMessages uses the fetcher to get messages
 func (app *App) fetchMessages() ([]*message.Message, func(), error) {
 	return app.fetcher.FetchMessages()
 }
 
-// parseMessage attempts to parse a message using templates
 func (app *App) parseMessage(msg *message.Message) *ParsedMessage {
 	tx, err := app.matcher.Parse(msg.Content)
 	return &ParsedMessage{
@@ -263,7 +241,6 @@ func (app *App) parseMessage(msg *message.Message) *ParsedMessage {
 	}
 }
 
-// validateYNABConfig validates YNAB configuration
 func (app *App) validateYNABConfig() error {
 	if app.config.YNAB.BudgetID == "" {
 		return fmt.Errorf("YNAB budget_id not configured")
@@ -274,7 +251,6 @@ func (app *App) validateYNABConfig() error {
 	return nil
 }
 
-// fetchFirstBudgetID fetches the first budget ID from YNAB API
 func (app *App) fetchFirstBudgetID(client *ynab.HTTPClient) (string, error) {
 	resp, err := client.GetBudgets()
 	if err != nil {
@@ -286,7 +262,6 @@ func (app *App) fetchFirstBudgetID(client *ynab.HTTPClient) (string, error) {
 	return resp.Data.Budgets[0].ID, nil
 }
 
-// convertTransactions converts all foreign currency transactions to default currency
 func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 	if app.converter == nil {
 		return
@@ -315,15 +290,12 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 	}
 }
 
-// runYNABSync synchronizes transactions to YNAB
 func (app *App) runYNABSync() error {
-	// Check API key first (needed for budget fetch)
 	apiKey := os.Getenv("YNAB_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("YNAB_API_KEY environment variable not set")
 	}
 
-	// Fetch budget ID from API if not configured
 	if app.config.YNAB.BudgetID == "" {
 		client := ynab.NewHTTPClient(apiKey)
 		budgetID, err := app.fetchFirstBudgetID(client)
@@ -338,25 +310,21 @@ func (app *App) runYNABSync() error {
 		fmt.Printf("Saved budget ID %s to config\n", budgetID)
 	}
 
-	// Validate remaining YNAB configuration
 	if err := app.validateYNABConfig(); err != nil {
 		return err
 	}
 
-	// Parse start date
 	startDate, err := time.Parse("2006-01-02", app.config.YNAB.StartDate)
 	if err != nil {
 		return fmt.Errorf("invalid YNAB start_date format: %w", err)
 	}
 
-	// Fetch messages
 	messages, cleanup, err := app.fetchMessages()
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	// Parse messages in parallel
 	parsedMessages := make([]*ParsedMessage, len(messages))
 	var mu sync.Mutex
 
@@ -367,20 +335,16 @@ func (app *App) runYNABSync() error {
 		mu.Unlock()
 	})
 
-	// Convert foreign currencies to MDL
 	app.convertTransactions(parsedMessages)
 
-	// Filter to only include transactions with templates
 	var filteredMessages []*message.Message
 	var filteredTransactions []*template.Transaction
 	for _, pm := range parsedMessages {
 		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
-			// Skip declined transactions
 			if strings.HasPrefix(pm.Transaction.Status, "Decline") {
 				continue
 			}
 
-			// Only include MDL transactions
 			if pm.Transaction.Converted.Currency == "MDL" {
 				filteredMessages = append(filteredMessages, pm.Message)
 				filteredTransactions = append(filteredTransactions, pm.Transaction)
@@ -390,7 +354,6 @@ func (app *App) runYNABSync() error {
 
 	fmt.Printf("Found %d MDL transactions to sync\n", len(filteredTransactions))
 
-	// Initialize YNAB components
 	syncStore, err := ynab.NewSyncStore(app.config.DataFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sync store: %w", err)
@@ -400,7 +363,6 @@ func (app *App) runYNABSync() error {
 	client := ynab.NewHTTPClient(apiKey)
 	defer client.ClearAPIKey()
 
-	// Ensure all transactions have YNAB accounts
 	accountManager := ynab.NewAccountManager(client)
 	updatedAccounts, err := accountManager.EnsureAccounts(
 		app.config.YNAB.BudgetID,
@@ -411,7 +373,6 @@ func (app *App) runYNABSync() error {
 		return fmt.Errorf("failed to ensure accounts: %w", err)
 	}
 
-	// Save config if new accounts were added
 	if len(updatedAccounts) > len(app.config.YNAB.Accounts) {
 		numNewAccounts := len(updatedAccounts) - len(app.config.YNAB.Accounts)
 		app.config.YNAB.Accounts = updatedAccounts
@@ -421,7 +382,6 @@ func (app *App) runYNABSync() error {
 		fmt.Printf("Added %d new account(s) to config\n", numNewAccounts)
 	}
 
-	// Convert config accounts to ynab accounts
 	ynabAccounts := make([]ynab.YNABAccount, len(updatedAccounts))
 	for i, acc := range updatedAccounts {
 		ynabAccounts[i] = ynab.YNABAccount{
@@ -433,13 +393,11 @@ func (app *App) runYNABSync() error {
 	mapper := ynab.NewMapper(ynabAccounts)
 	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate)
 
-	// Sync transactions
 	result, err := syncer.Sync(filteredMessages, filteredTransactions)
 	if err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
-	// Display results
 	fmt.Printf("\nSync Results:\n")
 	fmt.Printf("  Total transactions: %d\n", result.Total)
 	fmt.Printf("  Synced: %d\n", result.Synced)
@@ -454,7 +412,6 @@ func (app *App) runYNABSync() error {
 	return nil
 }
 
-// runSystemInstall installs the hourly sync service
 func (app *App) runSystemInstall() error {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -486,7 +443,6 @@ func (app *App) runSystemInstall() error {
 	return nil
 }
 
-// runSystemUninstall removes the hourly sync service
 func (app *App) runSystemUninstall() error {
 	execPath, err := os.Executable()
 	if err != nil {

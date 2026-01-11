@@ -461,10 +461,12 @@ func TestExpandPath(t *testing.T) {
 			validate: func(result string) bool { return len(result) > 1 && result != "~" },
 		},
 		{
-			name:     "tilde with path expands",
-			input:    "~/Library/Messages",
-			wantErr:  false,
-			validate: func(result string) bool { return strings.Contains(result, "Library/Messages") && !strings.HasPrefix(result, "~") },
+			name:    "tilde with path expands",
+			input:   "~/Library/Messages",
+			wantErr: false,
+			validate: func(result string) bool {
+				return strings.Contains(result, "Library/Messages") && !strings.HasPrefix(result, "~")
+			},
 		},
 	}
 

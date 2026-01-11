@@ -52,11 +52,7 @@ func expandPath(path string) (string, error) {
 		return homeDir, nil
 	}
 
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(homeDir, path[2:]), nil
-	}
-
-	return path, nil
+	return filepath.Join(homeDir, path[2:]), nil
 }
 
 // CheckDependencies verifies chat.db is accessible
@@ -110,38 +106,36 @@ type App struct {
 	converter  *exchangerate.Converter
 }
 
-// NewApp creates a new application instance
-func NewApp(cfg *config.Config, configPath string) *App {
-	store, err := exchangerate.NewStore(cfg.DataFilePath)
+// createExchangeRateStore creates an exchange rate store with warning on failure
+func createExchangeRateStore(dataFilePath string) *exchangerate.Store {
+	store, err := exchangerate.NewStore(dataFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
-		store = nil
+		return nil
 	}
+	return store
+}
 
+// NewApp creates a new application instance
+func NewApp(cfg *config.Config, configPath string) *App {
 	return &App{
 		config:     cfg,
 		configPath: configPath,
 		fetcher:    NewChatDBFetcher(cfg),
 		matcher:    template.NewMatcher(),
 		pool:       worker.NewPool(runtime.NumCPU()),
-		converter:  exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
+		converter:  exchangerate.NewConverter(createExchangeRateStore(cfg.DataFilePath), exchangerate.NewFetcher(), cfg.DefaultCurrency),
 	}
 }
 
 // NewAppWithFetcher creates a new application with a custom fetcher (for testing)
 func NewAppWithFetcher(cfg *config.Config, fetcher MessageFetcher) *App {
-	store, err := exchangerate.NewStore(cfg.DataFilePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
-		store = nil
-	}
-
 	return &App{
 		config:    cfg,
 		fetcher:   fetcher,
 		matcher:   template.NewMatcher(),
 		pool:      worker.NewPool(runtime.NumCPU()),
-		converter: exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
+		converter: exchangerate.NewConverter(createExchangeRateStore(cfg.DataFilePath), exchangerate.NewFetcher(), cfg.DefaultCurrency),
 	}
 }
 
@@ -304,22 +298,16 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 		}
 
 		tx := pm.Transaction
-		currency := tx.Original.Currency
-
-		// Use message timestamp truncated to day for rate lookup (UTC normalized)
 		date := pm.Message.Timestamp.UTC().Truncate(24 * time.Hour)
 
-		// Get or fetch the exchange rate
-		rate, err := app.converter.GetOrFetchRate(date, currency)
+		rate, err := app.converter.GetOrFetchRate(date, tx.Original.Currency)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get exchange rate for %s on %s: %v\n",
-				currency, date.Format("2006-01-02"), err)
-			// Set converted to same as original if conversion fails
+				tx.Original.Currency, date.Format("2006-01-02"), err)
 			tx.Converted = tx.Original
 			continue
 		}
 
-		// Convert the amount
 		tx.Converted = template.Amount{
 			Value:    tx.Original.Value * rate,
 			Currency: app.config.DefaultCurrency,

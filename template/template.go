@@ -94,7 +94,7 @@ func (t *MAIBTemplate) Parse(content string) (*Transaction, error) {
 			}
 			tx.Original = Amount{Value: amount, Currency: currency}
 		case "Dost":
-			balance, err := t.parseNumber(value)
+			balance, err := parseNumber(value)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +117,7 @@ func (t *MAIBTemplate) parseAmount(value string) (float64, string, error) {
 		return 0, "", errors.New("invalid amount format")
 	}
 
-	amount, err := t.parseNumber(matches[1])
+	amount, err := parseNumber(matches[1])
 	if err != nil {
 		return 0, "", err
 	}
@@ -125,8 +125,8 @@ func (t *MAIBTemplate) parseAmount(value string) (float64, string, error) {
 	return amount, matches[2], nil
 }
 
-func (t *MAIBTemplate) parseNumber(value string) (float64, error) {
-	// Replace comma with dot for decimal parsing
+// parseNumber normalizes and parses a numeric string
+func parseNumber(value string) (float64, error) {
 	normalized := strings.Replace(value, ",", ".", -1)
 	return strconv.ParseFloat(normalized, 64)
 }

@@ -77,7 +77,7 @@ func (s *Store) writeFile(data *dataFile) error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, content, 0644)
+	return os.WriteFile(s.filePath, content, 0600)
 }
 
 func (s *Store) SaveRate(rate *Rate) error {

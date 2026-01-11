@@ -66,7 +66,7 @@ func (s *SyncStore) writeFile(data *dataFile) error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, content, 0644)
+	return os.WriteFile(s.filePath, content, 0600)
 }
 
 // IsSynced checks if a transaction with the given import_id has been synced

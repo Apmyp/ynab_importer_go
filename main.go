@@ -316,7 +316,7 @@ func displayMessage(pm *ParsedMessage) {
 	fmt.Printf("\n[%s]\n", pm.Message.Timestamp.Format("2006-01-02 15:04:05"))
 
 	if !pm.HasTemplate || pm.Transaction == nil {
-		fmt.Printf("(no template)\n%s\n", pm.Message.Content)
+		fmt.Printf("(no template) [%d chars]\n", len(pm.Message.Content))
 		return
 	}
 
@@ -371,10 +371,10 @@ func (app *App) runMissingTemplates() error {
 			continue
 		}
 		count++
-		fmt.Printf("\n[%s] %s:\n%s\n",
+		fmt.Printf("\n[%s] %s: [%d chars]\n",
 			msg.Timestamp.Format("2006-01-02 15:04:05"),
 			msg.Sender,
-			msg.Content)
+			len(msg.Content))
 		fmt.Println("---")
 	}
 
@@ -513,6 +513,7 @@ func (app *App) runYNABSync() error {
 	defer syncStore.Close()
 
 	client := ynab.NewHTTPClient(apiKey)
+	defer client.ClearAPIKey()
 
 	// Ensure all transactions have YNAB accounts
 	accountManager := ynab.NewAccountManager(client)

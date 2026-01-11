@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +61,7 @@ func expandPath(path string) (string, error) {
 
 // CheckDependencies verifies chat.db is accessible
 func (f *ChatDBFetcher) CheckDependencies() error {
-	dbPath, err := expandPath(f.config.Bagoup.DBPath)
+	dbPath, err := expandPath(f.config.DBPath)
 	if err != nil {
 		return err
 	}
@@ -75,7 +74,7 @@ func (f *ChatDBFetcher) CheckDependencies() error {
 
 // FetchMessages reads messages directly from chat.db
 func (f *ChatDBFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
-	dbPath, err := expandPath(f.config.Bagoup.DBPath)
+	dbPath, err := expandPath(f.config.DBPath)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -103,15 +102,16 @@ func (f *ChatDBFetcher) FetchMessages() ([]*bagoup.Message, func(), error) {
 
 // App encapsulates the application logic
 type App struct {
-	config    *config.Config
-	fetcher   MessageFetcher
-	matcher   *template.Matcher
-	pool      *worker.Pool
-	converter *exchangerate.Converter
+	config     *config.Config
+	configPath string
+	fetcher    MessageFetcher
+	matcher    *template.Matcher
+	pool       *worker.Pool
+	converter  *exchangerate.Converter
 }
 
 // NewApp creates a new application instance
-func NewApp(cfg *config.Config) *App {
+func NewApp(cfg *config.Config, configPath string) *App {
 	store, err := exchangerate.NewStore(cfg.DataFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize exchange rate store: %v\n", err)
@@ -119,11 +119,12 @@ func NewApp(cfg *config.Config) *App {
 	}
 
 	return &App{
-		config:    cfg,
-		fetcher:   NewChatDBFetcher(cfg),
-		matcher:   template.NewMatcher(),
-		pool:      worker.NewPool(runtime.NumCPU()),
-		converter: exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
+		config:     cfg,
+		configPath: configPath,
+		fetcher:    NewChatDBFetcher(cfg),
+		matcher:    template.NewMatcher(),
+		pool:       worker.NewPool(runtime.NumCPU()),
+		converter:  exchangerate.NewConverter(store, exchangerate.NewFetcher(), cfg.DefaultCurrency),
 	}
 }
 
@@ -154,9 +155,19 @@ type ParsedMessage struct {
 // Run is the main application entry point
 func Run(args []string) error {
 	configPath := "config.json"
-	if len(args) > 0 && args[0] == "--config" && len(args) > 1 {
-		configPath = args[1]
-		args = args[2:]
+	dataFilePath := ""
+
+	// Parse options
+	for len(args) > 0 {
+		if args[0] == "--config" && len(args) > 1 {
+			configPath = args[1]
+			args = args[2:]
+		} else if args[0] == "--data-file" && len(args) > 1 {
+			dataFilePath = args[1]
+			args = args[2:]
+		} else {
+			break
+		}
 	}
 
 	cfg, err := config.Load(configPath)
@@ -164,15 +175,20 @@ func Run(args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	app := NewApp(cfg)
+	// Override data file path if specified via command line
+	if dataFilePath != "" {
+		cfg.DataFilePath = dataFilePath
+	}
+
+	app := NewApp(cfg, configPath)
 
 	// Check dependencies
 	if err := app.fetcher.CheckDependencies(); err != nil {
 		return err
 	}
 
-	// Determine command
-	command := "default"
+	// Determine command (ynab_sync is default)
+	command := "ynab_sync"
 	if len(args) > 0 {
 		command = args[0]
 	}
@@ -186,152 +202,8 @@ func Run(args []string) error {
 		return app.runSystemInstall()
 	case "system_uninstall":
 		return app.runSystemUninstall()
-	case "default":
-		return app.runDefault()
 	default:
 		return fmt.Errorf("unknown command: %s", command)
-	}
-}
-
-// runDefault fetches messages, parses them, and displays last 2 from each sender
-func (app *App) runDefault() error {
-	messages, cleanup, err := app.fetchMessages()
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-
-	// Parse messages in parallel using worker pool
-	parsedMessages := make([]*ParsedMessage, len(messages))
-	var mu sync.Mutex
-
-	app.pool.Map(len(messages), func(i int) {
-		parsed := app.parseMessage(messages[i])
-		mu.Lock()
-		parsedMessages[i] = parsed
-		mu.Unlock()
-	})
-
-	// Convert foreign currencies to default currency
-	app.convertTransactions(parsedMessages)
-
-	// Group by sender
-	bySender := make(map[string][]*ParsedMessage)
-	for _, pm := range parsedMessages {
-		if pm != nil {
-			bySender[pm.Message.Sender] = append(bySender[pm.Message.Sender], pm)
-		}
-	}
-
-	// Sort each sender's messages by timestamp (newest first) and display
-	for sender, msgs := range bySender {
-		sort.Slice(msgs, func(i, j int) bool {
-			return msgs[i].Message.Timestamp.After(msgs[j].Message.Timestamp)
-		})
-
-		// Collect messages to display: 2 latest + up to 2 foreign currency
-		toDisplay := selectMessagesToDisplay(msgs, app.config.DefaultCurrency)
-
-		// Display header
-		foreignCount := countForeignCurrency(toDisplay, app.config.DefaultCurrency)
-		if foreignCount > 0 {
-			fmt.Printf("\n=== %s (last 2 messages + %d foreign currency) ===\n", sender, foreignCount)
-		} else {
-			fmt.Printf("\n=== %s (last 2 messages) ===\n", sender)
-		}
-
-		// Display all collected messages
-		for _, pm := range toDisplay {
-			displayMessage(pm)
-		}
-	}
-
-	return nil
-}
-
-// selectMessagesToDisplay selects 2 latest + up to 2 foreign currency messages
-func selectMessagesToDisplay(msgs []*ParsedMessage, defaultCurrency string) []*ParsedMessage {
-	toDisplay := make([]*ParsedMessage, 0)
-
-	// First pass: collect 2 latest
-	for i := 0; i < len(msgs) && i < 2; i++ {
-		toDisplay = append(toDisplay, msgs[i])
-	}
-
-	// Second pass: collect up to 2 foreign currency transactions (skip already displayed)
-	foreignAdded := 0
-	for i := 0; i < len(msgs) && foreignAdded < 2; i++ {
-		pm := msgs[i]
-		if !isForeignCurrency(pm, defaultCurrency) {
-			continue
-		}
-
-		// Check if already in toDisplay
-		alreadyDisplayed := false
-		for _, displayed := range toDisplay {
-			if displayed == pm {
-				alreadyDisplayed = true
-				break
-			}
-		}
-
-		if !alreadyDisplayed {
-			toDisplay = append(toDisplay, pm)
-			foreignAdded++
-		}
-	}
-
-	return toDisplay
-}
-
-// isForeignCurrency checks if a message contains a foreign currency transaction
-func isForeignCurrency(pm *ParsedMessage, defaultCurrency string) bool {
-	return pm.HasTemplate &&
-		pm.Transaction != nil &&
-		pm.Transaction.Original.Currency != defaultCurrency
-}
-
-// countForeignCurrency counts foreign currency transactions in the display list
-func countForeignCurrency(msgs []*ParsedMessage, defaultCurrency string) int {
-	count := 0
-	displayed := make(map[*ParsedMessage]bool)
-
-	// Mark first 2 as already displayed
-	for i := 0; i < len(msgs) && i < 2; i++ {
-		displayed[msgs[i]] = true
-	}
-
-	// Count foreign currency messages that weren't in first 2
-	for _, pm := range msgs {
-		if !displayed[pm] && isForeignCurrency(pm, defaultCurrency) {
-			count++
-		}
-	}
-
-	return count
-}
-
-// displayMessage displays a single parsed message
-func displayMessage(pm *ParsedMessage) {
-	fmt.Printf("\n[%s]\n", pm.Message.Timestamp.Format("2006-01-02 15:04:05"))
-
-	if !pm.HasTemplate || pm.Transaction == nil {
-		fmt.Printf("(no template) [%d chars]\n", len(pm.Message.Content))
-		return
-	}
-
-	tx := pm.Transaction
-	fmt.Printf("Operation: %s\n", tx.Operation)
-	fmt.Printf("Amount: %.2f %s", tx.Original.Value, tx.Original.Currency)
-
-	if tx.Converted.Currency != "" && tx.Converted.Currency != tx.Original.Currency {
-		fmt.Printf(" (%.2f %s)", tx.Converted.Value, tx.Converted.Currency)
-	}
-	fmt.Println()
-
-	fmt.Printf("Status: %s\n", tx.Status)
-	if tx.Address != "" {
-		fmt.Printf("Address: %s\n", tx.Address)
 	}
 }
 
@@ -402,13 +274,22 @@ func (app *App) validateYNABConfig() error {
 	if app.config.YNAB.BudgetID == "" {
 		return fmt.Errorf("YNAB budget_id not configured")
 	}
-	if len(app.config.YNAB.Accounts) == 0 {
-		return fmt.Errorf("YNAB accounts not configured")
-	}
 	if app.config.YNAB.StartDate == "" {
 		return fmt.Errorf("YNAB start_date not configured")
 	}
 	return nil
+}
+
+// fetchFirstBudgetID fetches the first budget ID from YNAB API
+func (app *App) fetchFirstBudgetID(client *ynab.HTTPClient) (string, error) {
+	resp, err := client.GetBudgets()
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Data.Budgets) == 0 {
+		return "", fmt.Errorf("no budgets found in YNAB account")
+	}
+	return resp.Data.Budgets[0].ID, nil
 }
 
 // convertTransactions converts all foreign currency transactions to default currency
@@ -448,7 +329,28 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 
 // runYNABSync synchronizes transactions to YNAB
 func (app *App) runYNABSync() error {
-	// Validate YNAB configuration
+	// Check API key first (needed for budget fetch)
+	apiKey := os.Getenv("YNAB_API_KEY")
+	if apiKey == "" {
+		return fmt.Errorf("YNAB_API_KEY environment variable not set")
+	}
+
+	// Fetch budget ID from API if not configured
+	if app.config.YNAB.BudgetID == "" {
+		client := ynab.NewHTTPClient(apiKey)
+		budgetID, err := app.fetchFirstBudgetID(client)
+		client.ClearAPIKey()
+		if err != nil {
+			return fmt.Errorf("failed to fetch budget ID: %w", err)
+		}
+		app.config.YNAB.BudgetID = budgetID
+		if err := app.config.Save(app.configPath); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		fmt.Printf("Saved budget ID %s to config\n", budgetID)
+	}
+
+	// Validate remaining YNAB configuration
 	if err := app.validateYNABConfig(); err != nil {
 		return err
 	}
@@ -501,11 +403,6 @@ func (app *App) runYNABSync() error {
 	fmt.Printf("Found %d MDL transactions to sync\n", len(filteredTransactions))
 
 	// Initialize YNAB components
-	apiKey := os.Getenv("YNAB_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("YNAB_API_KEY environment variable not set")
-	}
-
 	syncStore, err := ynab.NewSyncStore(app.config.DataFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sync store: %w", err)
@@ -530,10 +427,10 @@ func (app *App) runYNABSync() error {
 	if len(updatedAccounts) > len(app.config.YNAB.Accounts) {
 		numNewAccounts := len(updatedAccounts) - len(app.config.YNAB.Accounts)
 		app.config.YNAB.Accounts = updatedAccounts
-		if err := app.config.Save("config.json"); err != nil {
+		if err := app.config.Save(app.configPath); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		fmt.Printf("Added %d new account(s) to config.json\n", numNewAccounts)
+		fmt.Printf("Added %d new account(s) to config\n", numNewAccounts)
 	}
 
 	// Convert config accounts to ynab accounts

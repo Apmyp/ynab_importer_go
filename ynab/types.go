@@ -85,3 +85,16 @@ type CreateAccountResponse struct {
 		Account Account `json:"account"`
 	} `json:"data"`
 }
+
+// Budget represents a YNAB budget
+type Budget struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetBudgetsResponse is the response from fetching budgets
+type GetBudgetsResponse struct {
+	Data struct {
+		Budgets []Budget `json:"budgets"`
+	} `json:"data"`
+}

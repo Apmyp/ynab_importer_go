@@ -12,10 +12,7 @@ func TestLoad_ValidConfig(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	content := `{
   "senders": ["102", "EXIMBANK"],
-  "bagoup": {
-    "db_path": "~/Library/Messages/chat.db",
-    "separate_chats": true
-  }
+  "db_path": "~/Library/Messages/chat.db"
 }`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to create temp config: %v", err)
@@ -35,11 +32,8 @@ func TestLoad_ValidConfig(t *testing.T) {
 	if cfg.Senders[1] != "EXIMBANK" {
 		t.Errorf("expected second sender to be 'EXIMBANK', got %q", cfg.Senders[1])
 	}
-	if cfg.Bagoup.DBPath != "~/Library/Messages/chat.db" {
-		t.Errorf("expected db_path '~/Library/Messages/chat.db', got %q", cfg.Bagoup.DBPath)
-	}
-	if !cfg.Bagoup.SeparateChats {
-		t.Error("expected separate_chats to be true")
+	if cfg.DBPath != "~/Library/Messages/chat.db" {
+		t.Errorf("expected db_path '~/Library/Messages/chat.db', got %q", cfg.DBPath)
 	}
 }
 
@@ -69,10 +63,7 @@ func TestLoad_DefaultCurrencyAndDataFilePath(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	content := `{
   "senders": ["102"],
-  "bagoup": {
-    "db_path": "~/Library/Messages/chat.db",
-    "separate_chats": true
-  },
+  "db_path": "~/Library/Messages/chat.db",
   "default_currency": "USD",
   "data_file_path": "custom_data.json"
 }`
@@ -98,10 +89,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	content := `{
   "senders": ["102"],
-  "bagoup": {
-    "db_path": "~/Library/Messages/chat.db",
-    "separate_chats": true
-  }
+  "db_path": "~/Library/Messages/chat.db"
 }`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to create temp config: %v", err)
@@ -125,9 +113,7 @@ func TestLoad_WithYNABConfig(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	content := `{
   "senders": ["102"],
-  "bagoup": {
-    "db_path": "~/Library/Messages/chat.db"
-  },
+  "db_path": "~/Library/Messages/chat.db",
   "ynab": {
     "budget_id": "test-budget-id",
     "start_date": "2026-01-01",
@@ -172,11 +158,8 @@ func TestConfig_Save(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 
 	cfg := &Config{
-		Senders: []string{"102", "EXIMBANK"},
-		Bagoup: BagoupConfig{
-			DBPath:        "~/Library/Messages/chat.db",
-			SeparateChats: true,
-		},
+		Senders:         []string{"102", "EXIMBANK"},
+		DBPath:          "~/Library/Messages/chat.db",
 		DefaultCurrency: "MDL",
 		DataFilePath:    "ynab_importer_go_data.json",
 		YNAB: YNABConfig{

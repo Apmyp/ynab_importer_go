@@ -144,6 +144,55 @@ func (c *HTTPClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) 
 	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 }
 
+// GetBudgets fetches all budgets
+func (c *HTTPClient) GetBudgets() (*GetBudgetsResponse, error) {
+	url := fmt.Sprintf("%s/budgets", c.baseURL)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, ErrRateLimitExceeded
+	}
+
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode >= 400 {
+		var errorResp ErrorResponse
+		if err := json.Unmarshal(body, &errorResp); err != nil {
+			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		var response GetBudgetsResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+		return &response, nil
+	}
+
+	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+}
+
 // CreateAccount creates a new account in YNAB
 func (c *HTTPClient) CreateAccount(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error) {
 	url := fmt.Sprintf("%s/budgets/%s/accounts", c.baseURL, budgetID)

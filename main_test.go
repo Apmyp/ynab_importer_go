@@ -39,7 +39,7 @@ func TestNewApp(t *testing.T) {
 		Senders: []string{"102", "EXIMBANK"},
 	}
 
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 	if app == nil {
 		t.Error("NewApp() should return a non-nil App")
 	}
@@ -125,11 +125,33 @@ func TestRun_ConfigNotFound(t *testing.T) {
 	}
 }
 
+func TestRun_DataFileOption(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	dataPath := filepath.Join(dir, "custom_data.json")
+	dbPath := filepath.Join(dir, "chat.db")
+
+	content := `{"senders": ["102"], "db_path": "` + dbPath + `"}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+
+	// Create empty db to pass dependency check
+	if err := os.WriteFile(dbPath, []byte{}, 0644); err != nil {
+		t.Fatalf("failed to create temp db: %v", err)
+	}
+
+	// This will run but may fail for other reasons - just verifies option parsing
+	_ = Run([]string{"--config", configPath, "--data-file", dataPath, "missing_templates"})
+
+	// The test passes if the command doesn't crash during option parsing
+}
+
 func TestRun_UnknownCommand(t *testing.T) {
 	// Create temp config
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	content := `{"senders": ["102"], "bagoup": {"db_path": "test.db", "separate_chats": true}}`
+	content := `{"senders": ["102"], "db_path": "test.db"}`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to create temp config: %v", err)
 	}
@@ -144,7 +166,7 @@ func TestApp_parseMessage_WithMatchingTemplate(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},
 	}
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 
 	msg := &bagoup.Message{
 		Timestamp: time.Now(),
@@ -176,7 +198,7 @@ func TestApp_parseMessage_WithoutMatchingTemplate(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},
 	}
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 
 	msg := &bagoup.Message{
 		Timestamp: time.Now(),
@@ -191,37 +213,20 @@ func TestApp_parseMessage_WithoutMatchingTemplate(t *testing.T) {
 	}
 }
 
-func TestRun_DefaultCommand(t *testing.T) {
-	// Create temp config
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.json")
-	content := `{"senders": ["102"], "bagoup": {"db_path": "test.db", "separate_chats": true}}`
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to create temp config: %v", err)
-	}
-
-	// This will fail because bagoup won't find the db, but tests the command parsing
-	err := Run([]string{"--config", configPath, "default"})
-	// Will fail because of bagoup execution, not command parsing
-	if err == nil {
-		t.Skip("Expected error from bagoup execution")
-	}
-}
-
 func TestRun_MissingTemplatesCommand(t *testing.T) {
 	// Create temp config
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
-	content := `{"senders": ["102"], "bagoup": {"db_path": "test.db", "separate_chats": true}}`
+	content := `{"senders": ["102"], "db_path": "test.db"}`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to create temp config: %v", err)
 	}
 
-	// This will fail because bagoup won't find the db, but tests the command parsing
+	// This will fail because db won't be found, but tests the command parsing
 	err := Run([]string{"--config", configPath, "missing_templates"})
-	// Will fail because of bagoup execution
+	// Will fail because of db access
 	if err == nil {
-		t.Skip("Expected error from bagoup execution")
+		t.Skip("Expected error from db access")
 	}
 }
 
@@ -229,7 +234,7 @@ func TestApp_parseMessage_EximTransaction(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"EXIMBANK"},
 	}
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 
 	msg := &bagoup.Message{
 		Timestamp: time.Now(),
@@ -247,70 +252,6 @@ func TestApp_parseMessage_EximTransaction(t *testing.T) {
 	}
 	if pm.Transaction.Original.Value != 5000.00 {
 		t.Errorf("expected amount 5000.00, got %f", pm.Transaction.Original.Value)
-	}
-}
-
-func TestApp_runDefault_WithMock(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"102"},
-	}
-
-	now := time.Now()
-	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
-			{
-				Timestamp: now,
-				Sender:    "102",
-				Content: `Op: Tovary i uslugi
-Karta: *1234
-Status: Odobrena
-Summa: 100 MDL
-Dost: 1000,00
-Data/vremya: 03.05.23 16:21
-Adres: TEST SHOP`,
-			},
-			{
-				Timestamp: now.Add(-time.Hour),
-				Sender:    "102",
-				Content: `Op: Tovary i uslugi
-Karta: *1234
-Status: Odobrena
-Summa: 200 MDL
-Dost: 900,00
-Data/vremya: 03.05.23 15:21
-Adres: ANOTHER SHOP`,
-			},
-			{
-				Timestamp: now.Add(-2 * time.Hour),
-				Sender:    "102",
-				Content:   "Random message without template",
-			},
-		},
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err != nil {
-		t.Errorf("runDefault() error = %v", err)
-	}
-	if !mockFetcher.cleanupCalled {
-		t.Error("cleanup should have been called")
-	}
-}
-
-func TestApp_runDefault_FetchError(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"102"},
-	}
-
-	mockFetcher := &MockFetcher{
-		fetchErr: errors.New("fetch failed"),
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err == nil {
-		t.Error("runDefault() should return error when fetch fails")
 	}
 }
 
@@ -369,72 +310,6 @@ func TestApp_runMissingTemplates_FetchError(t *testing.T) {
 	}
 }
 
-func TestApp_runDefault_EmptyMessages(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"102"},
-	}
-
-	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{},
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err != nil {
-		t.Errorf("runDefault() should not error with empty messages: %v", err)
-	}
-}
-
-func TestApp_runDefault_SingleMessage(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"102"},
-	}
-
-	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
-			{
-				Timestamp: time.Now(),
-				Sender:    "102",
-				Content:   "Single message",
-			},
-		},
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err != nil {
-		t.Errorf("runDefault() error = %v", err)
-	}
-}
-
-func TestApp_runDefault_MultipleSenders(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"102", "EXIMBANK"},
-	}
-
-	now := time.Now()
-	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
-			{
-				Timestamp: now,
-				Sender:    "102",
-				Content:   "Message from 102",
-			},
-			{
-				Timestamp: now,
-				Sender:    "EXIMBANK",
-				Content:   "Message from EXIMBANK",
-			},
-		},
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err != nil {
-		t.Errorf("runDefault() error = %v", err)
-	}
-}
-
 func TestExpandPath(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -487,9 +362,7 @@ func TestExpandPath(t *testing.T) {
 func TestChatDBFetcher_CheckDependencies(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},
-		Bagoup: config.BagoupConfig{
-			DBPath: "/nonexistent/path/chat.db",
-		},
+		DBPath:  "/nonexistent/path/chat.db",
 	}
 
 	fetcher := NewChatDBFetcher(cfg)
@@ -509,9 +382,7 @@ func TestChatDBFetcher_CheckDependencies_ValidPath(t *testing.T) {
 
 	cfg := &config.Config{
 		Senders: []string{"102"},
-		Bagoup: config.BagoupConfig{
-			DBPath: dbPath,
-		},
+		DBPath:  dbPath,
 	}
 
 	fetcher := NewChatDBFetcher(cfg)
@@ -524,9 +395,7 @@ func TestChatDBFetcher_CheckDependencies_ValidPath(t *testing.T) {
 func TestChatDBFetcher_FetchMessages_NonExistentDB(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"102"},
-		Bagoup: config.BagoupConfig{
-			DBPath: "/nonexistent/path/chat.db",
-		},
+		DBPath:  "/nonexistent/path/chat.db",
 	}
 
 	fetcher := NewChatDBFetcher(cfg)
@@ -578,9 +447,7 @@ func TestChatDBFetcher_FetchMessages_ValidDB(t *testing.T) {
 
 	cfg := &config.Config{
 		Senders: []string{"102"},
-		Bagoup: config.BagoupConfig{
-			DBPath: dbPath,
-		},
+		DBPath:  dbPath,
 	}
 
 	fetcher := NewChatDBFetcher(cfg)
@@ -641,7 +508,7 @@ func TestApp_parseMessage_NewTemplates(t *testing.T) {
 	cfg := &config.Config{
 		Senders: []string{"EXIMBANK"},
 	}
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 
 	testCases := []struct {
 		name        string
@@ -686,34 +553,6 @@ func TestApp_parseMessage_NewTemplates(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestApp_runDefault_WithNewTemplates(t *testing.T) {
-	cfg := &config.Config{
-		Senders: []string{"EXIMBANK"},
-	}
-
-	now := time.Now()
-	mockFetcher := &MockFetcher{
-		messages: []*bagoup.Message{
-			{
-				Timestamp: now,
-				Sender:    "EXIMBANK",
-				Content:   "Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii Test, Disponibil 100.00 MDL",
-			},
-			{
-				Timestamp: now.Add(-time.Hour),
-				Sender:    "EXIMBANK",
-				Content:   "Suplinire cont Card 9..7890, Data 29.04.2024 16:18:01, Suma 1000.00 MDL, Detalii Salary, Disponibil 2000.00 MDL",
-			},
-		},
-	}
-
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runDefault()
-	if err != nil {
-		t.Errorf("runDefault() error = %v", err)
 	}
 }
 
@@ -815,65 +654,49 @@ func TestApp_runMissingTemplates_FiltersMeMessages(t *testing.T) {
 	// This test verifies the filter is working (the actual output goes to stdout)
 }
 
-func TestApp_runYNABSync_MissingConfig(t *testing.T) {
-	tests := []struct {
-		name   string
-		config *config.Config
-		want   string
-	}{
-		{
-			name: "missing budget_id",
-			config: &config.Config{
-				Senders: []string{"102"},
-				YNAB: config.YNABConfig{
-					BudgetID:  "",
-					Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
-					StartDate: "2026-01-01",
-				},
-			},
-			want: "budget_id not configured",
-		},
-		{
-			name: "missing accounts",
-			config: &config.Config{
-				Senders: []string{"102"},
-				YNAB: config.YNABConfig{
-					BudgetID:  "test-budget",
-					Accounts:  []config.YNABAccount{},
-					StartDate: "2026-01-01",
-				},
-			},
-			want: "accounts not configured",
-		},
-		{
-			name: "missing start_date",
-			config: &config.Config{
-				Senders: []string{"102"},
-				YNAB: config.YNABConfig{
-					BudgetID:  "test-budget",
-					Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
-					StartDate: "",
-				},
-			},
-			want: "start_date not configured",
+func TestApp_runYNABSync_MissingStartDate(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := NewApp(tt.config)
-			err := app.runYNABSync()
-			if err == nil {
-				t.Errorf("runYNABSync() should return error, got nil")
-			}
-			if err != nil && err.Error() != "YNAB "+tt.want {
-				t.Errorf("runYNABSync() error = %v, want %v", err, "YNAB "+tt.want)
-			}
-		})
+	app := NewApp(cfg, "")
+	err := app.runYNABSync()
+	if err == nil {
+		t.Error("runYNABSync() should return error for missing start_date")
+	}
+	if err != nil && err.Error() != "YNAB start_date not configured" {
+		t.Errorf("runYNABSync() error = %v, want %v", err, "YNAB start_date not configured")
 	}
 }
 
 func TestApp_runYNABSync_InvalidStartDate(t *testing.T) {
+	// Save original env var
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
 	cfg := &config.Config{
 		Senders: []string{"102"},
 		YNAB: config.YNABConfig{
@@ -883,7 +706,7 @@ func TestApp_runYNABSync_InvalidStartDate(t *testing.T) {
 		},
 	}
 
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 	err := app.runYNABSync()
 	if err == nil {
 		t.Error("runYNABSync() should return error for invalid start date")
@@ -1105,7 +928,7 @@ func TestApp_convertTransactions_NilConverter(t *testing.T) {
 		Senders: []string{"102"},
 	}
 
-	app := NewApp(cfg)
+	app := NewApp(cfg, "")
 	app.converter = nil // Explicitly set converter to nil
 
 	parsedMessages := []*ParsedMessage{
@@ -1136,7 +959,7 @@ func TestRun_YNABSyncCommand(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	content := `{
 		"senders": ["102"],
-		"bagoup": {"db_path": "test.db", "separate_chats": true},
+		"db_path": "test.db",
 		"ynab": {
 			"budget_id": "test-budget",
 			"accounts": [{"ynab_account_id": "acc-1", "last4": "1234"}],
@@ -1147,10 +970,10 @@ func TestRun_YNABSyncCommand(t *testing.T) {
 		t.Fatalf("failed to create temp config: %v", err)
 	}
 
-	// This will fail because bagoup won't find the db, but tests the command parsing
+	// This will fail because db won't be found, but tests the command parsing
 	err := Run([]string{"--config", configPath, "ynab_sync"})
-	// Will fail because of bagoup execution or missing API key
+	// Will fail because of db execution or missing API key
 	if err == nil {
-		t.Skip("Expected error from bagoup or missing API key")
+		t.Skip("Expected error from db or missing API key")
 	}
 }

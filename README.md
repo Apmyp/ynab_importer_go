@@ -64,6 +64,7 @@ Create `config.json` in the same directory:
 | `senders` | SMS sender IDs to track |
 | `db_path` | Path to macOS Messages database |
 | `default_currency` | Target currency for conversion (default: MDL) |
+| `data_file_path` | Path to data file for cache and sync records (default: `ynab_importer_go_data.json`) |
 | `ynab.budget_id` | Your YNAB budget UUID (auto-fetched if not set) |
 | `ynab.start_date` | Only sync transactions after this date |
 | `ynab.accounts` | Map card last 4 digits to YNAB account IDs (auto-created) |
@@ -126,7 +127,7 @@ Removes the hourly sync service.
 | Option | Description |
 |--------|-------------|
 | `--config <path>` | Use custom config file (default: `config.json`) |
-| `--data-file <path>` | Use custom data file for cache and sync records |
+| `--data-file <path>` | Use custom data file (default: `ynab_importer_go_data.json`) |
 
 Example:
 

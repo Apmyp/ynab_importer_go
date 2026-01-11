@@ -36,6 +36,44 @@ func (c *HTTPClient) ClearAPIKey() {
 	c.apiKey = nil
 }
 
+// doRequest performs an HTTP request and handles common error cases
+func (c *HTTPClient) doRequest(req *http.Request) ([]byte, error) {
+	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, ErrRateLimitExceeded
+	}
+
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode >= 400 {
+		var errorResp ErrorResponse
+		if err := json.Unmarshal(body, &errorResp); err != nil {
+			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return body, nil
+}
+
 // CreateTransactions sends transactions to YNAB API
 func (c *HTTPClient) CreateTransactions(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
 	url := fmt.Sprintf("%s/budgets/%s/transactions", c.baseURL, budgetID)
@@ -53,46 +91,18 @@ func (c *HTTPClient) CreateTransactions(budgetID string, transactions []Transact
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := c.doRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, ErrRateLimitExceeded
+	var response CreateTransactionsResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
-	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode >= 400 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(body, &errorResp); err != nil {
-			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
-		}
-		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
-	}
-
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-		var response CreateTransactionsResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-		return &response, nil
-	}
-
-	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	return &response, nil
 }
 
 // GetAccounts fetches all accounts for a budget
@@ -104,44 +114,16 @@ func (c *HTTPClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
-
-	resp, err := c.httpClient.Do(req)
+	body, err := c.doRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, ErrRateLimitExceeded
+	var response GetAccountsResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
-	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode >= 400 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(body, &errorResp); err != nil {
-			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
-		}
-		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
-	}
-
-	if resp.StatusCode == http.StatusOK {
-		var response GetAccountsResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-		return &response, nil
-	}
-
-	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	return &response, nil
 }
 
 // GetBudgets fetches all budgets
@@ -153,44 +135,16 @@ func (c *HTTPClient) GetBudgets() (*GetBudgetsResponse, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
-
-	resp, err := c.httpClient.Do(req)
+	body, err := c.doRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, ErrRateLimitExceeded
+	var response GetBudgetsResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
-	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode >= 400 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(body, &errorResp); err != nil {
-			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
-		}
-		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
-	}
-
-	if resp.StatusCode == http.StatusOK {
-		var response GetBudgetsResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-		return &response, nil
-	}
-
-	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	return &response, nil
 }
 
 // CreateAccount creates a new account in YNAB
@@ -210,44 +164,16 @@ func (c *HTTPClient) CreateAccount(budgetID string, payload CreateAccountPayload
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := c.doRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, ErrRateLimitExceeded
+	var response CreateAccountResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-
-	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("YNAB server error: %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode >= 400 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(body, &errorResp); err != nil {
-			return nil, fmt.Errorf("YNAB API error %d: %s", resp.StatusCode, string(body))
-		}
-		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
-	}
-
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-		var response CreateAccountResponse
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-		return &response, nil
-	}
-
-	return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	return &response, nil
 }

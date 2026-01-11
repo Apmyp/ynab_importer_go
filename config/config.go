@@ -6,12 +6,6 @@ import (
 	"os"
 )
 
-// BagoupConfig holds bagoup command configuration
-type BagoupConfig struct {
-	DBPath        string `json:"db_path"`
-	SeparateChats bool   `json:"separate_chats"`
-}
-
 // YNABAccount maps a card's last 4 digits to a YNAB account ID
 type YNABAccount struct {
 	YNABAccountID string `json:"ynab_account_id"`
@@ -27,11 +21,11 @@ type YNABConfig struct {
 
 // Config represents the application configuration
 type Config struct {
-	Senders         []string     `json:"senders"`
-	Bagoup          BagoupConfig `json:"bagoup"`
-	DefaultCurrency string       `json:"default_currency"`
-	DataFilePath    string       `json:"data_file_path"`
-	YNAB            YNABConfig   `json:"ynab"`
+	Senders         []string   `json:"senders"`
+	DBPath          string     `json:"db_path"`
+	DefaultCurrency string     `json:"default_currency"`
+	DataFilePath    string     `json:"data_file_path"`
+	YNAB            YNABConfig `json:"ynab"`
 }
 
 // Load reads and parses a configuration file

@@ -359,3 +359,65 @@ func TestClient_CreateAccount_ServerError(t *testing.T) {
 		t.Error("CreateAccount() should fail on 500 errors")
 	}
 }
+
+func TestClient_GetBudgets_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/budgets" {
+			t.Errorf("Expected /v1/budgets, got %s", r.URL.Path)
+		}
+
+		response := GetBudgetsResponse{
+			Data: struct {
+				Budgets []Budget `json:"budgets"`
+			}{
+				Budgets: []Budget{
+					{ID: "budget-1", Name: "My Budget"},
+					{ID: "budget-2", Name: "Another Budget"},
+				},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	response, err := client.GetBudgets()
+	if err != nil {
+		t.Fatalf("GetBudgets() error = %v", err)
+	}
+
+	if len(response.Data.Budgets) != 2 {
+		t.Errorf("Expected 2 budgets, got %d", len(response.Data.Budgets))
+	}
+
+	if response.Data.Budgets[0].ID != "budget-1" {
+		t.Errorf("Expected budget ID 'budget-1', got %s", response.Data.Budgets[0].ID)
+	}
+}
+
+func TestClient_GetBudgets_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	_, err := client.GetBudgets()
+	if err == nil {
+		t.Error("GetBudgets() should fail on 500 errors")
+	}
+}

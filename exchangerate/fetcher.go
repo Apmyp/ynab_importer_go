@@ -2,6 +2,7 @@
 package exchangerate
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -10,6 +11,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrInvalidXMLResponse is returned when BNM API returns non-XML response
+var ErrInvalidXMLResponse = fmt.Errorf("BNM API returned invalid XML response")
 
 type HTTPClient interface {
 	Get(url string) ([]byte, error)
@@ -80,9 +84,20 @@ func (f *Fetcher) FetchRates(date time.Time) ([]*Rate, error) {
 		return nil, err
 	}
 
+	// Validate that response starts with XML declaration or root element
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || (trimmed[0] != '<') {
+		return nil, ErrInvalidXMLResponse
+	}
+
 	var valCurs ValCurs
 	if err := xml.Unmarshal(data, &valCurs); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidXMLResponse, err)
+	}
+
+	// Validate that we got expected XML structure
+	if valCurs.XMLName.Local != "ValCurs" {
+		return nil, fmt.Errorf("%w: unexpected root element", ErrInvalidXMLResponse)
 	}
 
 	var rates []*Rate

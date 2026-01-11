@@ -9,10 +9,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const (
-	// Apple's absolute time reference: 2001-01-01 00:00:00 UTC
-	appleEpoch = 978307200
-)
+// Apple's absolute time reference: 2001-01-01 00:00:00 UTC
+const appleEpoch = 978307200
 
 type Reader struct {
 	db      *sql.DB
@@ -109,7 +107,6 @@ func (r *Reader) FetchMessages() ([]*message.Message, error) {
 
 func appleTimeToUnix(appleTimeNano int64) time.Time {
 	// Messages database stores time as nanoseconds since 2001-01-01 (Apple's epoch)
-	// Convert to seconds, add epoch offset to get Unix timestamp
 	appleSeconds := appleTimeNano / 1000000000
 	unixTimestamp := appleSeconds + appleEpoch
 	return time.Unix(unixTimestamp, 0).UTC()

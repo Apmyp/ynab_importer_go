@@ -1,4 +1,3 @@
-// Package exchangerate handles fetching, storing, and converting currency exchange rates
 package exchangerate
 
 import (
@@ -12,7 +11,6 @@ import (
 	"time"
 )
 
-// ErrInvalidXMLResponse is returned when BNM API returns non-XML response
 var ErrInvalidXMLResponse = fmt.Errorf("BNM API returned invalid XML response")
 
 type HTTPClient interface {
@@ -84,7 +82,6 @@ func (f *Fetcher) FetchRates(date time.Time) ([]*Rate, error) {
 		return nil, err
 	}
 
-	// Validate that response starts with XML declaration or root element
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || (trimmed[0] != '<') {
 		return nil, ErrInvalidXMLResponse
@@ -95,7 +92,6 @@ func (f *Fetcher) FetchRates(date time.Time) ([]*Rate, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidXMLResponse, err)
 	}
 
-	// Validate that we got expected XML structure
 	if valCurs.XMLName.Local != "ValCurs" {
 		return nil, fmt.Errorf("%w: unexpected root element", ErrInvalidXMLResponse)
 	}

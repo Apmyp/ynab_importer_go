@@ -87,6 +87,38 @@ func TestFetchRates_InvalidXML(t *testing.T) {
 	if err == nil {
 		t.Error("FetchRates() should return error for invalid XML")
 	}
+	if !errors.Is(err, ErrInvalidXMLResponse) {
+		t.Errorf("expected ErrInvalidXMLResponse, got %v", err)
+	}
+}
+
+func TestFetchRates_EmptyResponse(t *testing.T) {
+	mockClient := &MockHTTPClient{response: []byte("")}
+	fetcher := NewFetcherWithClient(mockClient)
+
+	date := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	_, err := fetcher.FetchRates(date)
+	if err == nil {
+		t.Error("FetchRates() should return error for empty response")
+	}
+	if !errors.Is(err, ErrInvalidXMLResponse) {
+		t.Errorf("expected ErrInvalidXMLResponse, got %v", err)
+	}
+}
+
+func TestFetchRates_HTMLResponse(t *testing.T) {
+	// Test when BNM returns HTML error page instead of XML
+	mockClient := &MockHTTPClient{response: []byte(`<!DOCTYPE html><html><body>Error</body></html>`)}
+	fetcher := NewFetcherWithClient(mockClient)
+
+	date := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	_, err := fetcher.FetchRates(date)
+	if err == nil {
+		t.Error("FetchRates() should return error for HTML response")
+	}
+	if !errors.Is(err, ErrInvalidXMLResponse) {
+		t.Errorf("expected ErrInvalidXMLResponse, got %v", err)
+	}
 }
 
 type URLCapturingClient struct {

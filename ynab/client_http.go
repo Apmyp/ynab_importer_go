@@ -12,7 +12,7 @@ import (
 // HTTPClient handles HTTP communication with YNAB API
 type HTTPClient struct {
 	baseURL    string
-	apiKey     string
+	apiKey     []byte
 	httpClient *http.Client
 	retryDelay time.Duration
 	maxRetries int
@@ -22,11 +22,19 @@ type HTTPClient struct {
 func NewHTTPClient(apiKey string) *HTTPClient {
 	return &HTTPClient{
 		baseURL:    "https://api.youneedabudget.com/v1",
-		apiKey:     apiKey,
+		apiKey:     []byte(apiKey),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		retryDelay: 2 * time.Second,
 		maxRetries: 3,
 	}
+}
+
+// ClearAPIKey zeros out the API key in memory for security
+func (c *HTTPClient) ClearAPIKey() {
+	for i := range c.apiKey {
+		c.apiKey[i] = 0
+	}
+	c.apiKey = nil
 }
 
 // CreateTransactions sends transactions to YNAB API
@@ -54,7 +62,7 @@ func (c *HTTPClient) CreateTransactions(budgetID string, transactions []Transact
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.httpClient.Do(req)
@@ -121,7 +129,7 @@ func (c *HTTPClient) GetAccounts(budgetID string) (*GetAccountsResponse, error) 
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -192,7 +200,7 @@ func (c *HTTPClient) CreateAccount(budgetID string, payload CreateAccountPayload
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+string(c.apiKey))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.httpClient.Do(req)

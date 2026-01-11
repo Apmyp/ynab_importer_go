@@ -43,7 +43,7 @@ func TestClient_CreateTransactions_Success(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 	}
 
@@ -103,7 +103,7 @@ func TestClient_CreateTransactions_RateLimitError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond, // Short delay for testing
 		maxRetries: 3,
@@ -143,7 +143,7 @@ func TestClient_CreateTransactions_PermanentError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		maxRetries: 3,
 	}
@@ -163,11 +163,28 @@ func TestNewHTTPClient(t *testing.T) {
 	if client == nil {
 		t.Error("NewHTTPClient() returned nil")
 	}
-	if client.apiKey != "test-api-key" {
-		t.Errorf("apiKey = %v, want test-api-key", client.apiKey)
+	if string(client.apiKey) != "test-api-key" {
+		t.Errorf("apiKey = %v, want test-api-key", string(client.apiKey))
 	}
 	if client.baseURL != "https://api.youneedabudget.com/v1" {
 		t.Errorf("baseURL = %v, want https://api.youneedabudget.com/v1", client.baseURL)
+	}
+}
+
+func TestHTTPClient_ClearAPIKey(t *testing.T) {
+	client := NewHTTPClient("secret-key")
+
+	// Verify key is set
+	if string(client.apiKey) != "secret-key" {
+		t.Error("API key not set correctly")
+	}
+
+	// Clear the key
+	client.ClearAPIKey()
+
+	// Verify key is nil
+	if client.apiKey != nil {
+		t.Error("API key should be nil after ClearAPIKey()")
 	}
 }
 
@@ -181,7 +198,7 @@ func TestClient_CreateTransactions_ServerError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,
@@ -209,7 +226,7 @@ func TestClient_CreateTransactions_UnexpectedStatusCode(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,
@@ -254,7 +271,7 @@ func TestClient_GetAccounts_Success(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 	}
 
@@ -282,7 +299,7 @@ func TestClient_GetAccounts_ServerError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,
@@ -346,7 +363,7 @@ func TestClient_CreateAccount_Success(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 	}
 
@@ -379,7 +396,7 @@ func TestClient_CreateAccount_ServerError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,
@@ -419,7 +436,7 @@ func TestClient_GetAccounts_ClientError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 	}
 
@@ -448,7 +465,7 @@ func TestClient_CreateAccount_ClientError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 	}
 
@@ -473,7 +490,7 @@ func TestClient_GetAccounts_RateLimitError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,
@@ -499,7 +516,7 @@ func TestClient_CreateAccount_RateLimitError(t *testing.T) {
 
 	client := &HTTPClient{
 		baseURL:    server.URL + "/v1",
-		apiKey:     "test-api-key",
+		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
 		retryDelay: 10 * time.Millisecond,
 		maxRetries: 3,

@@ -79,6 +79,8 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <string>%s/ynab_sync_error.log</string>
     <key>StartInterval</key>
     <integer>3600</integer>
+    <key>Umask</key>
+    <integer>63</integer>
 </dict>
 </plist>`
 

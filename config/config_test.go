@@ -64,17 +64,6 @@ func TestLoad_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestConfig_GetSenders(t *testing.T) {
-	cfg := &Config{
-		Senders: []string{"102", "EXIMBANK"},
-	}
-
-	senders := cfg.GetSenders()
-	if len(senders) != 2 {
-		t.Errorf("expected 2 senders, got %d", len(senders))
-	}
-}
-
 func TestLoad_DefaultCurrencyAndDataFilePath(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")

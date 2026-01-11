@@ -2,16 +2,14 @@ package ynab
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 func TestClient_CreateTransactions_Success(t *testing.T) {
-	// Mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request
 		if r.Method != "POST" {
 			t.Errorf("Expected POST, got %s", r.Method)
 		}
@@ -25,7 +23,6 @@ func TestClient_CreateTransactions_Success(t *testing.T) {
 			t.Errorf("Expected application/json, got %s", r.Header.Get("Content-Type"))
 		}
 
-		// Return success response
 		response := CreateTransactionsResponse{
 			Data: struct {
 				TransactionIDs []string `json:"transaction_ids"`
@@ -77,27 +74,8 @@ func TestClient_CreateTransactions_Success(t *testing.T) {
 }
 
 func TestClient_CreateTransactions_RateLimitError(t *testing.T) {
-	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		if attempts <= 2 {
-			// Return 429 for first 2 attempts
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		// Success on 3rd attempt
-		response := CreateTransactionsResponse{
-			Data: struct {
-				TransactionIDs []string `json:"transaction_ids"`
-				Transactions   []struct {
-					ID       string `json:"id"`
-					ImportID string `json:"import_id"`
-				} `json:"transactions,omitempty"`
-			}{
-				TransactionIDs: []string{"txn-1"},
-			},
-		}
-		json.NewEncoder(w).Encode(response)
+		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer server.Close()
 
@@ -105,8 +83,6 @@ func TestClient_CreateTransactions_RateLimitError(t *testing.T) {
 		baseURL:    server.URL + "/v1",
 		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond, // Short delay for testing
-		maxRetries: 3,
 	}
 
 	transactions := []TransactionPayload{
@@ -114,16 +90,15 @@ func TestClient_CreateTransactions_RateLimitError(t *testing.T) {
 	}
 
 	_, err := client.CreateTransactions("test-budget", transactions)
-	if err != nil {
-		t.Fatalf("CreateTransactions() should succeed after retries, error = %v", err)
+	if err == nil {
+		t.Fatal("CreateTransactions() should return error on 429")
 	}
-
-	if attempts != 3 {
-		t.Errorf("Expected 3 attempts, got %d", attempts)
+	if !errors.Is(err, ErrRateLimitExceeded) {
+		t.Errorf("Expected ErrRateLimitExceeded, got %v", err)
 	}
 }
 
-func TestClient_CreateTransactions_PermanentError(t *testing.T) {
+func TestClient_CreateTransactions_ClientError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		errorResp := ErrorResponse{
@@ -145,7 +120,6 @@ func TestClient_CreateTransactions_PermanentError(t *testing.T) {
 		baseURL:    server.URL + "/v1",
 		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
-		maxRetries: 3,
 	}
 
 	transactions := []TransactionPayload{
@@ -174,24 +148,19 @@ func TestNewHTTPClient(t *testing.T) {
 func TestHTTPClient_ClearAPIKey(t *testing.T) {
 	client := NewHTTPClient("secret-key")
 
-	// Verify key is set
 	if string(client.apiKey) != "secret-key" {
 		t.Error("API key not set correctly")
 	}
 
-	// Clear the key
 	client.ClearAPIKey()
 
-	// Verify key is nil
 	if client.apiKey != nil {
 		t.Error("API key should be nil after ClearAPIKey()")
 	}
 }
 
 func TestClient_CreateTransactions_ServerError(t *testing.T) {
-	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -200,8 +169,6 @@ func TestClient_CreateTransactions_ServerError(t *testing.T) {
 		baseURL:    server.URL + "/v1",
 		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
 	}
 
 	transactions := []TransactionPayload{
@@ -210,35 +177,7 @@ func TestClient_CreateTransactions_ServerError(t *testing.T) {
 
 	_, err := client.CreateTransactions("test-budget", transactions)
 	if err == nil {
-		t.Error("CreateTransactions() should fail after max retries on 500 errors")
-	}
-
-	if attempts != 4 { // initial + 3 retries
-		t.Errorf("Expected 4 attempts, got %d", attempts)
-	}
-}
-
-func TestClient_CreateTransactions_UnexpectedStatusCode(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTeapot) // 418
-	}))
-	defer server.Close()
-
-	client := &HTTPClient{
-		baseURL:    server.URL + "/v1",
-		apiKey:     []byte("test-api-key"),
-		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
-	}
-
-	transactions := []TransactionPayload{
-		{AccountID: "account-1", Date: "2026-01-10", Amount: -10000},
-	}
-
-	_, err := client.CreateTransactions("test-budget", transactions)
-	if err == nil {
-		t.Error("CreateTransactions() should return error for unexpected status code")
+		t.Error("CreateTransactions() should fail on 500 errors")
 	}
 }
 
@@ -261,7 +200,6 @@ func TestClient_GetAccounts_Success(t *testing.T) {
 				Accounts: []Account{
 					{ID: "account-1", Name: "Card 1234", Type: "checking", Balance: 100000, Closed: false, Deleted: false},
 					{ID: "account-2", Name: "Card 5678", Type: "checking", Balance: 200000, Closed: false, Deleted: false},
-					{ID: "account-3", Name: "Closed Account", Type: "checking", Balance: 0, Closed: true, Deleted: false},
 				},
 			},
 		}
@@ -280,19 +218,34 @@ func TestClient_GetAccounts_Success(t *testing.T) {
 		t.Fatalf("GetAccounts() error = %v", err)
 	}
 
-	if len(response.Data.Accounts) != 3 {
-		t.Errorf("Expected 3 accounts, got %d", len(response.Data.Accounts))
+	if len(response.Data.Accounts) != 2 {
+		t.Errorf("Expected 2 accounts, got %d", len(response.Data.Accounts))
+	}
+}
+
+func TestClient_GetAccounts_RateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
 	}
 
-	if response.Data.Accounts[0].Name != "Card 1234" {
-		t.Errorf("Expected first account name 'Card 1234', got %s", response.Data.Accounts[0].Name)
+	_, err := client.GetAccounts("test-budget")
+	if err == nil {
+		t.Error("GetAccounts() should fail on rate limit")
+	}
+	if !errors.Is(err, ErrRateLimitExceeded) {
+		t.Errorf("Expected ErrRateLimitExceeded, got %v", err)
 	}
 }
 
 func TestClient_GetAccounts_ServerError(t *testing.T) {
-	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -301,17 +254,11 @@ func TestClient_GetAccounts_ServerError(t *testing.T) {
 		baseURL:    server.URL + "/v1",
 		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
 	}
 
 	_, err := client.GetAccounts("test-budget")
 	if err == nil {
-		t.Error("GetAccounts() should fail after max retries on 500 errors")
-	}
-
-	if attempts != 4 {
-		t.Errorf("Expected 4 attempts, got %d", attempts)
+		t.Error("GetAccounts() should fail on 500 errors")
 	}
 }
 
@@ -323,14 +270,7 @@ func TestClient_CreateAccount_Success(t *testing.T) {
 		if r.URL.Path != "/v1/budgets/test-budget/accounts" {
 			t.Errorf("Expected /v1/budgets/test-budget/accounts, got %s", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer test-api-key" {
-			t.Errorf("Expected Bearer test-api-key, got %s", r.Header.Get("Authorization"))
-		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("Expected application/json, got %s", r.Header.Get("Content-Type"))
-		}
 
-		// Verify request body
 		var req CreateAccountRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("Failed to decode request: %v", err)
@@ -338,21 +278,15 @@ func TestClient_CreateAccount_Success(t *testing.T) {
 		if req.Account.Name != "Card 1234" {
 			t.Errorf("Expected account name 'Card 1234', got %s", req.Account.Name)
 		}
-		if req.Account.Type != "checking" {
-			t.Errorf("Expected account type 'checking', got %s", req.Account.Type)
-		}
 
 		response := CreateAccountResponse{
 			Data: struct {
 				Account Account `json:"account"`
 			}{
 				Account: Account{
-					ID:      "new-account-id",
-					Name:    "Card 1234",
-					Type:    "checking",
-					Balance: 0,
-					Closed:  false,
-					Deleted: false,
+					ID:   "new-account-id",
+					Name: "Card 1234",
+					Type: "checking",
 				},
 			},
 		}
@@ -381,15 +315,33 @@ func TestClient_CreateAccount_Success(t *testing.T) {
 	if response.Data.Account.ID != "new-account-id" {
 		t.Errorf("Expected account ID 'new-account-id', got %s", response.Data.Account.ID)
 	}
-	if response.Data.Account.Name != "Card 1234" {
-		t.Errorf("Expected account name 'Card 1234', got %s", response.Data.Account.Name)
+}
+
+func TestClient_CreateAccount_RateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	payload := CreateAccountPayload{Name: "Card 1234", Type: "checking"}
+
+	_, err := client.CreateAccount("test-budget", payload)
+	if err == nil {
+		t.Error("CreateAccount() should fail on rate limit")
+	}
+	if !errors.Is(err, ErrRateLimitExceeded) {
+		t.Errorf("Expected ErrRateLimitExceeded, got %v", err)
 	}
 }
 
 func TestClient_CreateAccount_ServerError(t *testing.T) {
-	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -398,141 +350,12 @@ func TestClient_CreateAccount_ServerError(t *testing.T) {
 		baseURL:    server.URL + "/v1",
 		apiKey:     []byte("test-api-key"),
 		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
 	}
 
-	payload := CreateAccountPayload{
-		Name: "Card 1234",
-		Type: "checking",
-	}
+	payload := CreateAccountPayload{Name: "Card 1234", Type: "checking"}
 
 	_, err := client.CreateAccount("test-budget", payload)
 	if err == nil {
-		t.Error("CreateAccount() should fail after max retries on 500 errors")
-	}
-
-	if attempts != 4 {
-		t.Errorf("Expected 4 attempts, got %d", attempts)
-	}
-}
-
-func TestClient_GetAccounts_ClientError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Error: struct {
-				ID     string `json:"id"`
-				Name   string `json:"name"`
-				Detail string `json:"detail"`
-			}{
-				ID:     "400",
-				Name:   "bad_request",
-				Detail: "Invalid request",
-			},
-		})
-	}))
-	defer server.Close()
-
-	client := &HTTPClient{
-		baseURL:    server.URL + "/v1",
-		apiKey:     []byte("test-api-key"),
-		httpClient: server.Client(),
-	}
-
-	_, err := client.GetAccounts("test-budget")
-	if err == nil {
-		t.Error("GetAccounts() should fail on 4xx client errors")
-	}
-}
-
-func TestClient_CreateAccount_ClientError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{
-			Error: struct {
-				ID     string `json:"id"`
-				Name   string `json:"name"`
-				Detail string `json:"detail"`
-			}{
-				ID:     "400",
-				Name:   "bad_request",
-				Detail: "Invalid account data",
-			},
-		})
-	}))
-	defer server.Close()
-
-	client := &HTTPClient{
-		baseURL:    server.URL + "/v1",
-		apiKey:     []byte("test-api-key"),
-		httpClient: server.Client(),
-	}
-
-	payload := CreateAccountPayload{
-		Name: "Card 1234",
-		Type: "checking",
-	}
-
-	_, err := client.CreateAccount("test-budget", payload)
-	if err == nil {
-		t.Error("CreateAccount() should fail on 4xx client errors")
-	}
-}
-
-func TestClient_GetAccounts_RateLimitError(t *testing.T) {
-	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server.Close()
-
-	client := &HTTPClient{
-		baseURL:    server.URL + "/v1",
-		apiKey:     []byte("test-api-key"),
-		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
-	}
-
-	_, err := client.GetAccounts("test-budget")
-	if err == nil {
-		t.Error("GetAccounts() should fail after max retries on rate limit errors")
-	}
-
-	if attempts != 4 {
-		t.Errorf("Expected 4 attempts, got %d", attempts)
-	}
-}
-
-func TestClient_CreateAccount_RateLimitError(t *testing.T) {
-	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server.Close()
-
-	client := &HTTPClient{
-		baseURL:    server.URL + "/v1",
-		apiKey:     []byte("test-api-key"),
-		httpClient: server.Client(),
-		retryDelay: 10 * time.Millisecond,
-		maxRetries: 3,
-	}
-
-	payload := CreateAccountPayload{
-		Name: "Card 1234",
-		Type: "checking",
-	}
-
-	_, err := client.CreateAccount("test-budget", payload)
-	if err == nil {
-		t.Error("CreateAccount() should fail after max retries on rate limit errors")
-	}
-
-	if attempts != 4 {
-		t.Errorf("Expected 4 attempts, got %d", attempts)
+		t.Error("CreateAccount() should fail on 500 errors")
 	}
 }

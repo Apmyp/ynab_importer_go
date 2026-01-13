@@ -51,6 +51,7 @@ func (r *Reader) FetchMessages() ([]*message.Message, error) {
 			m.ROWID,
 			h.id as sender,
 			m.text,
+			m.attributedBody,
 			m.date,
 			m.is_from_me
 		FROM message m
@@ -72,20 +73,31 @@ func (r *Reader) FetchMessages() ([]*message.Message, error) {
 	defer rows.Close()
 
 	var messages []*message.Message
+
 	for rows.Next() {
 		var (
-			rowID    int64
-			sender   string
-			text     sql.NullString
-			date     int64
-			isFromMe int
+			rowID          int64
+			sender         string
+			text           sql.NullString
+			attributedBody []byte
+			date           int64
+			isFromMe       int
 		)
 
-		if err := rows.Scan(&rowID, &sender, &text, &date, &isFromMe); err != nil {
+		if err := rows.Scan(&rowID, &sender, &text, &attributedBody, &date, &isFromMe); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		if !text.Valid || text.String == "" {
+		var messageText string
+		if text.Valid && text.String != "" {
+			messageText = text.String
+		} else if len(attributedBody) > 0 {
+			var err error
+			messageText, err = extractTextFromAttributedBody(attributedBody)
+			if err != nil {
+				continue
+			}
+		} else {
 			continue
 		}
 
@@ -94,7 +106,7 @@ func (r *Reader) FetchMessages() ([]*message.Message, error) {
 		messages = append(messages, &message.Message{
 			Timestamp: timestamp,
 			Sender:    sender,
-			Content:   text.String,
+			Content:   messageText,
 		})
 	}
 

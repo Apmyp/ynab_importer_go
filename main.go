@@ -413,6 +413,11 @@ func (app *App) runYNABSync() error {
 }
 
 func (app *App) runSystemInstall() error {
+	apiKey := os.Getenv("YNAB_API_KEY")
+	if apiKey == "" {
+		return fmt.Errorf("YNAB_API_KEY environment variable not set")
+	}
+
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
@@ -423,7 +428,7 @@ func (app *App) runSystemInstall() error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	installer, err := system.NewInstaller(execPath, workingDir)
+	installer, err := system.NewInstaller(execPath, workingDir, apiKey)
 	if err != nil {
 		return err
 	}
@@ -454,7 +459,7 @@ func (app *App) runSystemUninstall() error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	installer, err := system.NewInstaller(execPath, workingDir)
+	installer, err := system.NewInstaller(execPath, workingDir, "")
 	if err != nil {
 		return err
 	}

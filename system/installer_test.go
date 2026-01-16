@@ -86,6 +86,7 @@ func TestGeneratePlist(t *testing.T) {
 	installer := &Installer{
 		execPath:   "/usr/local/bin/ynab_importer_go",
 		workingDir: "/Users/test/config",
+		apiKey:     "test-api-key-12345",
 	}
 
 	plist := installer.generatePlist()
@@ -99,6 +100,9 @@ func TestGeneratePlist(t *testing.T) {
 		"<key>ProgramArguments</key>",
 		"<string>/usr/local/bin/ynab_importer_go</string>",
 		"<string>ynab_sync</string>",
+		"<key>EnvironmentVariables</key>",
+		"<key>YNAB_API_KEY</key>",
+		"<string>test-api-key-12345</string>",
 		"<key>WorkingDirectory</key>",
 		"<string>/Users/test/config</string>",
 		"<key>StandardOutPath</key>",
@@ -150,6 +154,7 @@ func TestInstall_Success(t *testing.T) {
 	installer := &Installer{
 		execPath:   "/usr/local/bin/ynab_importer_go",
 		workingDir: "/Users/test/config",
+		apiKey:     "test-api-key",
 		goos:       "darwin",
 		homeDir:    "/Users/test",
 		fileWriter: mockWriter,
@@ -198,6 +203,7 @@ func TestInstall_FileWriteError(t *testing.T) {
 	installer := &Installer{
 		execPath:   "/usr/local/bin/ynab_importer_go",
 		workingDir: "/Users/test/config",
+		apiKey:     "test-api-key",
 		goos:       "darwin",
 		homeDir:    "/Users/test",
 		fileWriter: mockWriter,
@@ -219,6 +225,7 @@ func TestInstall_LaunchctlError(t *testing.T) {
 	installer := &Installer{
 		execPath:   "/usr/local/bin/ynab_importer_go",
 		workingDir: "/Users/test/config",
+		apiKey:     "test-api-key",
 		goos:       "darwin",
 		homeDir:    "/Users/test",
 		fileWriter: mockWriter,
@@ -290,7 +297,7 @@ func TestUninstall_NotInstalled(t *testing.T) {
 }
 
 func TestNewInstaller(t *testing.T) {
-	installer, err := NewInstaller("/usr/bin/test", "/test/working/dir")
+	installer, err := NewInstaller("/usr/bin/test", "/test/working/dir", "test-api-key")
 	if err != nil {
 		t.Errorf("NewInstaller() should not return error, got: %v", err)
 	}
@@ -302,5 +309,8 @@ func TestNewInstaller(t *testing.T) {
 	}
 	if installer.workingDir != "/test/working/dir" {
 		t.Errorf("NewInstaller() workingDir = %s, want /test/working/dir", installer.workingDir)
+	}
+	if installer.apiKey != "test-api-key" {
+		t.Errorf("NewInstaller() apiKey = %s, want test-api-key", installer.apiKey)
 	}
 }

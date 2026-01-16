@@ -13,6 +13,7 @@ type Installer struct {
 	workingDir string
 	goos       string
 	homeDir    string
+	apiKey     string
 	fileWriter fileWriter
 	cmdRunner  commandRunner
 }
@@ -43,7 +44,7 @@ func (execCommandRunner) Run(name string, args ...string) error {
 	return cmd.Run()
 }
 
-func NewInstaller(execPath, workingDir string) (*Installer, error) {
+func NewInstaller(execPath, workingDir, apiKey string) (*Installer, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
@@ -54,6 +55,7 @@ func NewInstaller(execPath, workingDir string) (*Installer, error) {
 		workingDir: workingDir,
 		goos:       runtime.GOOS,
 		homeDir:    homeDir,
+		apiKey:     apiKey,
 		fileWriter: osFileWriter{},
 		cmdRunner:  execCommandRunner{},
 	}, nil
@@ -71,6 +73,11 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
         <string>%s</string>
         <string>ynab_sync</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>YNAB_API_KEY</key>
+        <string>%s</string>
+    </dict>
     <key>WorkingDirectory</key>
     <string>%s</string>
     <key>StandardOutPath</key>
@@ -99,6 +106,7 @@ func (i *Installer) generatePlist() string {
 	return fmt.Sprintf(plistTemplate,
 		plistLabel,
 		i.execPath,
+		i.apiKey,
 		i.workingDir,
 		i.workingDir,
 		i.workingDir,

@@ -13,30 +13,32 @@ Supports Moldovan banks: MAIB and Eximbank.
 
 The Messages database (`chat.db`) is a protected file in macOS. You need to grant access before the app can read your SMS messages.
 
-### Option 1: Full Disk Access (recommended for automated sync)
+### For Manual Runs: Terminal Full Disk Access
 
 Grant your terminal full disk access:
 
-1. Open **System Preferences** → **Security & Privacy**
-2. Select the **Privacy** tab
-3. Select **Full Disk Access** from the left menu
-4. Click the lock icon and authenticate
-5. Click **+** and add your terminal app (Terminal, iTerm, etc.)
-6. Restart your terminal
+1. Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+2. Click the lock icon and authenticate
+3. Click **+** and add your terminal app (Terminal, iTerm, etc.)
+4. Restart your terminal
 
-After this, the app can read `chat.db` from its default location.
+After this, the app can read `chat.db` when run manually.
 
-### Option 2: Copy the Database (more secure, manual only)
+### For Automated Sync: App Bundle Full Disk Access
 
-Copy the database file to an unprotected location:
+When using `system_install` for hourly automated syncs, you need to grant Full Disk Access to the app bundle:
 
-1. Open Finder
-2. Navigate to `~/Library/Messages`
-3. Right-click `chat.db` → **Copy "chat.db"**
-4. Paste it to your home folder or another location
-5. Update `db_path` in your config to point to the copy
+1. First run `./ynab_importer_go system_install` (see Installation section below)
+2. Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+3. Click the lock icon and authenticate
+4. Click **+** and add `ynab_sync.app` from your project directory
+5. Restart the service:
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/com.apmyp.ynab_importer_go.plist
+   launchctl load ~/Library/LaunchAgents/com.apmyp.ynab_importer_go.plist
+   ```
 
-Note: This copy won't include new messages. You need to repeat this process each time.
+The app bundle contains the binary and runs with the necessary permissions for automated access.
 
 ## Installation
 
@@ -104,15 +106,27 @@ Shows SMS messages that don't match any parsing template. Useful for debugging o
 
 ### Install System Service
 
+First, ensure your YNAB API key is set in your shell profile (e.g., `~/.zshrc`):
+
 ```bash
+export YNAB_API_KEY="your-api-key"
+```
+
+Then install the service:
+
+```bash
+source ~/.zshrc  # Load the API key
 ./ynab_importer_go system_install
 ```
 
-Installs a macOS launchd service that syncs every hour.
+This creates:
+- **App bundle**: `ynab_sync.app` - macOS application bundle containing the binary
+- **launchd service**: Runs the app every hour automatically
+- **Log files**:
+  - `ynab_sync.log` - standard output
+  - `ynab_sync_error.log` - errors
 
-Logs are saved to:
-- `ynab_sync.log` - standard output
-- `ynab_sync_error.log` - errors
+**Important**: After installation, grant Full Disk Access to `ynab_sync.app` (see "For Automated Sync" section above).
 
 ### Uninstall System Service
 

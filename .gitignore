@@ -12,5 +12,11 @@ ynab_importer_go
 ynab_importer_go_data.json
 messages_*/
 
+# System service
+ynab_sync.app/
+ynab_sync.log
+ynab_sync_error.log
+debug.log
+
 # Config with sensitive data
 config.json

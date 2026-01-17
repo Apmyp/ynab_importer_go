@@ -438,12 +438,18 @@ func (app *App) runSystemInstall() error {
 	}
 
 	fmt.Println("Successfully installed hourly sync service")
+	fmt.Printf("App bundle: %s/ynab_sync.app\n", workingDir)
 	fmt.Printf("Binary: %s\n", execPath)
 	fmt.Printf("Working directory: %s\n", workingDir)
 	fmt.Printf("Logs:\n")
 	fmt.Printf("  Standard output: %s/ynab_sync.log\n", workingDir)
 	fmt.Printf("  Error output: %s/ynab_sync_error.log\n", workingDir)
-	fmt.Println("Sync will run every hour")
+	fmt.Println("\nIMPORTANT: Add the app to Full Disk Access:")
+	fmt.Println("  1. Go to System Settings → Privacy & Security → Full Disk Access")
+	fmt.Printf("  2. Click + and add: %s/ynab_sync.app\n", workingDir)
+	fmt.Println("  3. Restart the service: launchctl unload ~/Library/LaunchAgents/com.apmyp.ynab_importer_go.plist")
+	fmt.Println("                           launchctl load ~/Library/LaunchAgents/com.apmyp.ynab_importer_go.plist")
+	fmt.Println("\nSync will run every hour")
 
 	return nil
 }

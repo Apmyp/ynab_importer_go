@@ -21,6 +21,9 @@ type Installer struct {
 type fileWriter interface {
 	WriteFile(path string, data []byte, perm os.FileMode) error
 	Remove(path string) error
+	RemoveAll(path string) error
+	MkdirAll(path string, perm os.FileMode) error
+	CopyFile(src, dst string, perm os.FileMode) error
 }
 
 type commandRunner interface {
@@ -35,6 +38,22 @@ func (osFileWriter) WriteFile(path string, data []byte, perm os.FileMode) error 
 
 func (osFileWriter) Remove(path string) error {
 	return os.Remove(path)
+}
+
+func (osFileWriter) RemoveAll(path string) error {
+	return os.RemoveAll(path)
+}
+
+func (osFileWriter) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (osFileWriter) CopyFile(src, dst string, perm os.FileMode) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, perm)
 }
 
 type execCommandRunner struct{}
@@ -62,7 +81,30 @@ func NewInstaller(execPath, workingDir, apiKey string) (*Installer, error) {
 }
 
 const plistLabel = "com.apmyp.ynab_importer_go"
-const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+
+const shellScriptTemplate = `#!/bin/bash
+cd "%s"
+exec "$(dirname "$0")/ynab_sync_binary" ynab_sync
+`
+
+const appInfoPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ynab_sync</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.apmyp.ynab_sync</string>
+    <key>CFBundleName</key>
+    <string>YNAB Sync</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+</dict>
+</plist>`
+
+const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -71,7 +113,6 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
-        <string>ynab_sync</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -98,14 +139,46 @@ func (i *Installer) checkOS() error {
 	return nil
 }
 
-func (i *Installer) plistPath() string {
+func (i *Installer) launchdPlistPath() string {
 	return filepath.Join(i.homeDir, "Library/LaunchAgents", plistLabel+".plist")
 }
 
-func (i *Installer) generatePlist() string {
-	return fmt.Sprintf(plistTemplate,
+func (i *Installer) appBundlePath() string {
+	return filepath.Join(i.workingDir, "ynab_sync.app")
+}
+
+func (i *Installer) appContentsPath() string {
+	return filepath.Join(i.appBundlePath(), "Contents")
+}
+
+func (i *Installer) appMacOSPath() string {
+	return filepath.Join(i.appContentsPath(), "MacOS")
+}
+
+func (i *Installer) appExecutablePath() string {
+	return filepath.Join(i.appMacOSPath(), "ynab_sync")
+}
+
+func (i *Installer) appBinaryPath() string {
+	return filepath.Join(i.appMacOSPath(), "ynab_sync_binary")
+}
+
+func (i *Installer) appInfoPlistPath() string {
+	return filepath.Join(i.appContentsPath(), "Info.plist")
+}
+
+func (i *Installer) generateScript() string {
+	return fmt.Sprintf(shellScriptTemplate, i.workingDir)
+}
+
+func (i *Installer) generateAppInfoPlist() string {
+	return appInfoPlistTemplate
+}
+
+func (i *Installer) generateLaunchdPlist() string {
+	return fmt.Sprintf(launchdPlistTemplate,
 		plistLabel,
-		i.execPath,
+		i.appExecutablePath(),
 		i.apiKey,
 		i.workingDir,
 		i.workingDir,
@@ -130,14 +203,32 @@ func (i *Installer) Install() error {
 		return err
 	}
 
-	plistPath := i.plistPath()
-	plistContent := i.generatePlist()
-
-	if err := i.fileWriter.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
-		return fmt.Errorf("failed to write plist: %w", err)
+	if err := i.fileWriter.MkdirAll(i.appMacOSPath(), 0755); err != nil {
+		return fmt.Errorf("failed to create app bundle directories: %w", err)
 	}
 
-	if err := i.cmdRunner.Run("launchctl", "load", plistPath); err != nil {
+	appInfoPlistContent := i.generateAppInfoPlist()
+	if err := i.fileWriter.WriteFile(i.appInfoPlistPath(), []byte(appInfoPlistContent), 0644); err != nil {
+		return fmt.Errorf("failed to write app Info.plist: %w", err)
+	}
+
+	if err := i.fileWriter.CopyFile(i.execPath, i.appBinaryPath(), 0755); err != nil {
+		return fmt.Errorf("failed to copy binary to app bundle: %w", err)
+	}
+
+	executableContent := i.generateScript()
+	if err := i.fileWriter.WriteFile(i.appExecutablePath(), []byte(executableContent), 0755); err != nil {
+		return fmt.Errorf("failed to write app executable: %w", err)
+	}
+
+	launchdPlistPath := i.launchdPlistPath()
+	launchdPlistContent := i.generateLaunchdPlist()
+
+	if err := i.fileWriter.WriteFile(launchdPlistPath, []byte(launchdPlistContent), 0644); err != nil {
+		return fmt.Errorf("failed to write launchd plist: %w", err)
+	}
+
+	if err := i.cmdRunner.Run("launchctl", "load", launchdPlistPath); err != nil {
 		return fmt.Errorf("failed to load service: %w", err)
 	}
 
@@ -149,16 +240,19 @@ func (i *Installer) Uninstall() error {
 		return err
 	}
 
-	plistPath := i.plistPath()
+	launchdPlistPath := i.launchdPlistPath()
 
-	_ = i.cmdRunner.Run("launchctl", "unload", plistPath)
+	_ = i.cmdRunner.Run("launchctl", "unload", launchdPlistPath)
 
-	if err := i.fileWriter.Remove(plistPath); err != nil {
+	if err := i.fileWriter.Remove(launchdPlistPath); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("service not installed")
 		}
-		return fmt.Errorf("failed to remove plist: %w", err)
+		return fmt.Errorf("failed to remove launchd plist: %w", err)
 	}
+
+	appBundlePath := i.appBundlePath()
+	_ = i.fileWriter.RemoveAll(appBundlePath)
 
 	return nil
 }

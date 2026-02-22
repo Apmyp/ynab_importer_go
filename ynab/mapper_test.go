@@ -14,7 +14,7 @@ func TestNewMapper(t *testing.T) {
 		{YNABAccountID: "account-2", Last4: "5678"},
 	}
 
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 	if mapper == nil {
 		t.Error("NewMapper() returned nil")
 	}
@@ -26,7 +26,7 @@ func TestMapper_MatchAccount(t *testing.T) {
 		{YNABAccountID: "account-2", Last4: "5678"},
 		{YNABAccountID: "account-6345", Last4: "6345"},
 	}
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 
 	tests := []struct {
 		name    string
@@ -88,7 +88,7 @@ func TestMapper_MatchAccount(t *testing.T) {
 }
 
 func TestMapper_GenerateImportID(t *testing.T) {
-	mapper := NewMapper([]YNABAccount{})
+	mapper := NewMapper([]YNABAccount{}, nil)
 
 	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
@@ -142,7 +142,7 @@ func TestMapper_MapTransaction(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},
 	}
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 
 	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
@@ -199,7 +199,7 @@ func TestMapper_MapTransaction_Suplinire(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},
 	}
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 
 	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
@@ -230,7 +230,7 @@ func TestMapper_MapTransaction_NoAccountMatch(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "9999"},
 	}
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 
 	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
@@ -319,7 +319,7 @@ func TestMapper_MapTransaction_StandardMemoIsEmpty(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},
 	}
-	mapper := NewMapper(accounts)
+	mapper := NewMapper(accounts, nil)
 
 	msg := &message.Message{
 		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
@@ -343,5 +343,207 @@ func TestMapper_MapTransaction_StandardMemoIsEmpty(t *testing.T) {
 
 	if payload.Memo != "" {
 		t.Errorf("Memo = %q, want empty string for standard transaction", payload.Memo)
+	}
+}
+
+func TestMapper_MapTransaction_NalogNaDoxodyPoVkladu_IsDebit(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 2, 22, 10, 0, 0, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Nalog na doxody po vkladu",
+		Card:      "9..1234",
+		Converted: template.Amount{
+			Value:    50.00,
+			Currency: "MDL",
+		},
+		Address: "Tax Office",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.Amount != -50000 {
+		t.Errorf("Amount = %v, want -50000 (debit/outflow)", payload.Amount)
+	}
+}
+
+func TestMapper_MapTransaction_PlataSalarialaLuna_NoPayeeAddressAsMemo(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 2, 22, 10, 0, 0, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Suplinire",
+		Card:      "9..1234",
+		Converted: template.Amount{
+			Value:    5000.00,
+			Currency: "MDL",
+		},
+		Address: "Plata salariala luna ianuarie 2026",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.PayeeName != "" {
+		t.Errorf("PayeeName = %q, want empty string for salary transaction", payload.PayeeName)
+	}
+
+	if payload.Memo != "Plata salariala luna ianuarie 2026" {
+		t.Errorf("Memo = %q, want address as memo for salary transaction", payload.Memo)
+	}
+}
+
+func TestMapper_MapTransaction_UspeshnoeReversirovanie_IsInflow(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 2, 22, 10, 0, 0, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Uspeshnoe reversirovanie",
+		Card:      "9..1234",
+		Converted: template.Amount{
+			Value:    200.00,
+			Currency: "MDL",
+		},
+		Address: "Some Merchant",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.Amount != 200000 {
+		t.Errorf("Amount = %v, want 200000 (inflow/positive)", payload.Amount)
+	}
+}
+
+func TestNewMapper_WithCategoryStore(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	filePath := t.TempDir() + "/data.json"
+	categoryStore := NewCategoryStore(filePath)
+
+	mapper := NewMapper(accounts, categoryStore)
+	if mapper == nil {
+		t.Error("NewMapper() with category store returned nil")
+	}
+}
+
+func TestNewMapper_WithNilCategoryStore(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts, nil)
+	if mapper == nil {
+		t.Error("NewMapper() with nil category store returned nil")
+	}
+}
+
+func TestMapper_MapTransaction_AppliesCategory(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	filePath := t.TempDir() + "/data.json"
+	categoryStore := NewCategoryStore(filePath)
+	_ = categoryStore.Set("Coffee Shop", "cat-food-123")
+
+	mapper := NewMapper(accounts, categoryStore)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
+	}
+	tx := &template.Transaction{
+		Operation: "Debitare",
+		Card:      "9..1234",
+		Converted: template.Amount{Value: 10.00, Currency: "MDL"},
+		Address:   "Coffee Shop",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.CategoryID != "cat-food-123" {
+		t.Errorf("CategoryID = %q, want cat-food-123", payload.CategoryID)
+	}
+}
+
+func TestMapper_MapTransaction_NoCategoryWhenUnknownPayee(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	filePath := t.TempDir() + "/data.json"
+	categoryStore := NewCategoryStore(filePath)
+
+	mapper := NewMapper(accounts, categoryStore)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
+	}
+	tx := &template.Transaction{
+		Operation: "Debitare",
+		Card:      "9..1234",
+		Converted: template.Amount{Value: 10.00, Currency: "MDL"},
+		Address:   "Unknown New Shop",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.CategoryID != "" {
+		t.Errorf("CategoryID = %q, want empty for unknown payee", payload.CategoryID)
+	}
+}
+
+func TestMapper_MapTransaction_NoCategoryWithNilStore(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1234"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 1, 10, 15, 30, 45, 0, time.UTC),
+	}
+	tx := &template.Transaction{
+		Operation: "Debitare",
+		Card:      "9..1234",
+		Converted: template.Amount{Value: 10.00, Currency: "MDL"},
+		Address:   "Coffee Shop",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.CategoryID != "" {
+		t.Errorf("CategoryID = %q, want empty when store is nil", payload.CategoryID)
 	}
 }

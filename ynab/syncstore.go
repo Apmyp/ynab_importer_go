@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"time"
 )
 
 type SyncStore struct {
@@ -13,8 +14,9 @@ type SyncStore struct {
 }
 
 type dataFile struct {
-	Rates                  []interface{} `json:"rates"`
-	YNABSyncedTransactions []SyncRecord  `json:"ynab_synced_transactions"`
+	Rates                  []interface{}     `json:"rates"`
+	YNABSyncedTransactions []SyncRecord      `json:"ynab_synced_transactions"`
+	PayeeCategories        map[string]string `json:"payee_categories,omitempty"`
 }
 
 func NewSyncStore(filePath string) (*SyncStore, error) {
@@ -118,3 +120,58 @@ func (s *SyncStore) Close() error {
 }
 
 var ErrNotSynced = errors.New("transaction not synced")
+
+func (s *SyncStore) DeleteSyncedOnOrAfter(date time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readFile()
+	if err != nil {
+		return 0, err
+	}
+
+	var kept []SyncRecord
+	deleted := 0
+	for _, record := range data.YNABSyncedTransactions {
+		if record.TransactionDate == "" {
+			kept = append(kept, record)
+			continue
+		}
+		txDate, err := time.Parse("2006-01-02", record.TransactionDate)
+		if err != nil {
+			kept = append(kept, record)
+			continue
+		}
+		if txDate.Before(date) {
+			kept = append(kept, record)
+		} else {
+			deleted++
+		}
+	}
+
+	data.YNABSyncedTransactions = kept
+	if kept == nil {
+		data.YNABSyncedTransactions = []SyncRecord{}
+	}
+	if err := s.writeFile(data); err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
+func (s *SyncStore) DeleteAllSynced() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readFile()
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := len(data.YNABSyncedTransactions)
+	data.YNABSyncedTransactions = []SyncRecord{}
+	if err := s.writeFile(data); err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}

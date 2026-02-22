@@ -15,9 +15,10 @@ import (
 type Mapper struct {
 	accountsByLast4 map[string]string
 	last4Regex      *regexp.Regexp
+	categoryStore   *CategoryStore
 }
 
-func NewMapper(accounts []YNABAccount) *Mapper {
+func NewMapper(accounts []YNABAccount, categoryStore *CategoryStore) *Mapper {
 	accountsByLast4 := make(map[string]string)
 	for _, acc := range accounts {
 		accountsByLast4[acc.Last4] = acc.YNABAccountID
@@ -26,6 +27,7 @@ func NewMapper(accounts []YNABAccount) *Mapper {
 	return &Mapper{
 		accountsByLast4: accountsByLast4,
 		last4Regex:      regexp.MustCompile(`\d{4}$`),
+		categoryStore:   categoryStore,
 	}
 }
 
@@ -85,15 +87,25 @@ func (m *Mapper) MapTransaction(msg *message.Message, tx *template.Transaction) 
 	}
 
 	memo := buildMemo(tx)
+	if strings.Contains(tx.Address, "Plata salariala luna") {
+		payeeName = ""
+		memo = tx.Address
+	}
+
+	var categoryID string
+	if m.categoryStore != nil && payeeName != "" {
+		categoryID = m.categoryStore.Get(payeeName)
+	}
 
 	return &TransactionPayload{
-		AccountID: accountID,
-		Date:      date,
-		Amount:    amountMilliunits,
-		PayeeName: payeeName,
-		Memo:      memo,
-		Cleared:   "cleared",
-		ImportID:  importID,
+		AccountID:  accountID,
+		Date:       date,
+		Amount:     amountMilliunits,
+		PayeeName:  payeeName,
+		Memo:       memo,
+		Cleared:    "cleared",
+		ImportID:   importID,
+		CategoryID: categoryID,
 	}, nil
 }
 
@@ -148,6 +160,7 @@ func isDebit(operation string) bool {
 		"Debitare",
 		"Tovary i uslugi",
 		"Tranzactie reusita",
+		"Nalog na doxody po vkladu",
 	}
 
 	for _, op := range debitOperations {

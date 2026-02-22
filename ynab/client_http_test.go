@@ -421,3 +421,235 @@ func TestClient_GetBudgets_ServerError(t *testing.T) {
 		t.Error("GetBudgets() should fail on 500 errors")
 	}
 }
+
+func TestClient_GetTransactions_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/budgets/test-budget/transactions" {
+			t.Errorf("Expected /v1/budgets/test-budget/transactions, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("since_date") != "2026-01-01" {
+			t.Errorf("Expected since_date=2026-01-01, got %s", r.URL.Query().Get("since_date"))
+		}
+
+		response := GetTransactionsResponse{}
+		response.Data.Transactions = []TransactionDetail{
+			{ID: "txn-1", PayeeName: "Coffee Shop", CategoryID: "cat-1"},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	resp, err := client.GetTransactions("test-budget", "2026-01-01")
+	if err != nil {
+		t.Fatalf("GetTransactions() error = %v", err)
+	}
+
+	if len(resp.Data.Transactions) != 1 {
+		t.Errorf("Expected 1 transaction, got %d", len(resp.Data.Transactions))
+	}
+	if resp.Data.Transactions[0].PayeeName != "Coffee Shop" {
+		t.Errorf("PayeeName = %q, want %q", resp.Data.Transactions[0].PayeeName, "Coffee Shop")
+	}
+}
+
+func TestClient_GetTransactions_NoSinceDate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("since_date") != "" {
+			t.Errorf("Expected no since_date, got %s", r.URL.Query().Get("since_date"))
+		}
+		response := GetTransactionsResponse{}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	_, err := client.GetTransactions("test-budget", "")
+	if err != nil {
+		t.Fatalf("GetTransactions() error = %v", err)
+	}
+}
+
+func TestClient_GetTransactions_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	_, err := client.GetTransactions("test-budget", "")
+	if err == nil {
+		t.Error("GetTransactions() should fail on 500 errors")
+	}
+}
+
+func TestClient_GetCategories_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/budgets/test-budget/categories" {
+			t.Errorf("Expected /v1/budgets/test-budget/categories, got %s", r.URL.Path)
+		}
+
+		response := GetCategoriesResponse{}
+		response.Data.CategoryGroups = []CategoryGroup{
+			{
+				ID:   "group-1",
+				Name: "Food",
+				Categories: []CategoryItem{
+					{ID: "cat-1", Name: "Groceries"},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	resp, err := client.GetCategories("test-budget")
+	if err != nil {
+		t.Fatalf("GetCategories() error = %v", err)
+	}
+
+	if len(resp.Data.CategoryGroups) != 1 {
+		t.Errorf("Expected 1 group, got %d", len(resp.Data.CategoryGroups))
+	}
+	if resp.Data.CategoryGroups[0].Name != "Food" {
+		t.Errorf("Group name = %q, want %q", resp.Data.CategoryGroups[0].Name, "Food")
+	}
+}
+
+func TestClient_GetCategories_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	_, err := client.GetCategories("test-budget")
+	if err == nil {
+		t.Error("GetCategories() should fail on 500 errors")
+	}
+}
+
+func TestClient_DeleteTransaction_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("Expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/budgets/test-budget/transactions/txn-1" {
+			t.Errorf("Expected /v1/budgets/test-budget/transactions/txn-1, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-api-key" {
+			t.Errorf("Expected Bearer test-api-key, got %s", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	err := client.DeleteTransaction("test-budget", "txn-1")
+	if err != nil {
+		t.Fatalf("DeleteTransaction() error = %v", err)
+	}
+}
+
+func TestClient_DeleteTransaction_NoContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	err := client.DeleteTransaction("test-budget", "txn-1")
+	if err != nil {
+		t.Fatalf("DeleteTransaction() should succeed on 204, got error = %v", err)
+	}
+}
+
+func TestClient_DeleteTransaction_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	err := client.DeleteTransaction("test-budget", "txn-1")
+	if err == nil {
+		t.Error("DeleteTransaction() should fail on 500 errors")
+	}
+}
+
+func TestClient_DeleteTransaction_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		errorResp := ErrorResponse{
+			Error: struct {
+				ID     string `json:"id"`
+				Name   string `json:"name"`
+				Detail string `json:"detail"`
+			}{
+				ID:     "404.1",
+				Name:   "not_found",
+				Detail: "Transaction not found",
+			},
+		}
+		json.NewEncoder(w).Encode(errorResp)
+	}))
+	defer server.Close()
+
+	client := &HTTPClient{
+		baseURL:    server.URL + "/v1",
+		apiKey:     []byte("test-api-key"),
+		httpClient: server.Client(),
+	}
+
+	err := client.DeleteTransaction("test-budget", "nonexistent")
+	if err == nil {
+		t.Error("DeleteTransaction() should fail on 404")
+	}
+}

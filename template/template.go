@@ -332,6 +332,7 @@ func NewMatcher() *Matcher {
 			"In data de",
 			"Cardul Eximbank",
 			"] Me:",
+			"nedostatochno sredstv",
 		},
 	}
 }

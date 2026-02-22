@@ -2,6 +2,8 @@ package ynab
 
 import (
 	"fmt"
+	"math"
+	"regexp"
 	"time"
 
 	"github.com/apmyp/ynab_importer_go/message"
@@ -12,6 +14,9 @@ type YNABClient interface {
 	CreateTransactions(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error)
 	GetAccounts(budgetID string) (*GetAccountsResponse, error)
 	CreateAccount(budgetID string, payload CreateAccountPayload) (*CreateAccountResponse, error)
+	GetTransactions(budgetID string, sinceDate string) (*GetTransactionsResponse, error)
+	GetCategories(budgetID string) (*GetCategoriesResponse, error)
+	DeleteTransaction(budgetID, transactionID string) error
 }
 
 type Syncer struct {
@@ -23,10 +28,11 @@ type Syncer struct {
 }
 
 type SyncResult struct {
-	Total   int
-	Synced  int
-	Skipped int
-	Failed  []string
+	Total         int
+	Synced        int
+	Skipped       int
+	Failed        []string
+	UnknownPayees []string
 }
 
 func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time) *Syncer {
@@ -39,6 +45,58 @@ func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID str
 	}
 }
 
+var last4Regex = regexp.MustCompile(`\d{4}$`)
+
+func extractLast4(card string) string {
+	return last4Regex.FindString(card)
+}
+
+func detectTransferPairs(messages []*message.Message, transactions []*template.Transaction) map[int]int {
+	pairs := make(map[int]int)
+	creditUsed := make(map[int]bool)
+
+	for i, tx := range transactions {
+		if !isDebit(tx.Operation) {
+			continue
+		}
+
+		for j, candidate := range transactions {
+			if i == j {
+				continue
+			}
+			if isDebit(candidate.Operation) {
+				continue
+			}
+			if creditUsed[j] {
+				continue
+			}
+
+			diff := math.Abs(tx.Converted.Value - candidate.Converted.Value)
+			if diff > 0.01 {
+				continue
+			}
+
+			if extractLast4(tx.Card) == extractLast4(candidate.Card) {
+				continue
+			}
+
+			timeDiff := messages[i].Timestamp.Sub(messages[j].Timestamp)
+			if timeDiff < 0 {
+				timeDiff = -timeDiff
+			}
+			if timeDiff > 5*time.Minute {
+				continue
+			}
+
+			pairs[i] = j
+			creditUsed[j] = true
+			break
+		}
+	}
+
+	return pairs
+}
+
 func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Transaction) (*SyncResult, error) {
 	result := &SyncResult{
 		Total: len(transactions),
@@ -48,12 +106,23 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 		return nil, fmt.Errorf("messages and transactions length mismatch: %d vs %d", len(messages), len(transactions))
 	}
 
+	transferPairs := detectTransferPairs(messages, transactions)
+	creditSideIndexes := make(map[int]bool)
+	for _, creditIdx := range transferPairs {
+		creditSideIndexes[creditIdx] = true
+	}
+
 	var toSync []TransactionPayload
 	var toSyncImportIDs []string
 
 	for i := 0; i < len(transactions); i++ {
 		msg := messages[i]
 		tx := transactions[i]
+
+		if creditSideIndexes[i] {
+			result.Skipped++
+			continue
+		}
 
 		if msg.Timestamp.Before(s.startDate) {
 			result.Skipped++
@@ -78,6 +147,23 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 			continue
 		}
 
+		if creditIdx, isTransfer := transferPairs[i]; isTransfer {
+			creditTx := transactions[creditIdx]
+			creditAccountID, err := s.mapper.MatchAccount(creditTx)
+			if err != nil {
+				result.Skipped++
+				result.Failed = append(result.Failed, fmt.Sprintf("Failed to match credit account: %v", err))
+				continue
+			}
+			payload.TransferAccountID = creditAccountID
+		}
+
+		if payload.CategoryID == "" && payload.PayeeName != "" {
+			if !containsString(result.UnknownPayees, payload.PayeeName) {
+				result.UnknownPayees = append(result.UnknownPayees, payload.PayeeName)
+			}
+		}
+
 		toSync = append(toSync, *payload)
 		toSyncImportIDs = append(toSyncImportIDs, importID)
 	}
@@ -86,7 +172,6 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 		return result, nil
 	}
 
-	// YNAB API limit: 100 transactions per request
 	batchSize := 100
 	for i := 0; i < len(toSync); i += batchSize {
 		end := i + batchSize
@@ -115,4 +200,13 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 	}
 
 	return result, nil
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

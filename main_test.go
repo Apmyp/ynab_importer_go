@@ -977,3 +977,103 @@ func TestRun_YNABSyncCommand(t *testing.T) {
 		t.Skip("Expected error from db or missing API key")
 	}
 }
+
+func TestApp_runReimport_MissingAPIKey(t *testing.T) {
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Unsetenv("YNAB_API_KEY")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{messages: []*message.Message{}}
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runReimport([]string{})
+	if err == nil {
+		t.Error("runReimport() should return error when YNAB_API_KEY is not set")
+	}
+	if err != nil && err.Error() != "YNAB_API_KEY environment variable not set" {
+		t.Errorf("runReimport() error = %v, want YNAB_API_KEY environment variable not set", err)
+	}
+}
+
+func TestApp_runReimport_InvalidFromDate(t *testing.T) {
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "invalid-date",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{messages: []*message.Message{}}
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runReimport([]string{})
+	if err == nil {
+		t.Error("runReimport() should return error for invalid from date")
+	}
+}
+
+func TestApp_runReimport_InvalidFromFlag(t *testing.T) {
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	mockFetcher := &MockFetcher{messages: []*message.Message{}}
+	app := NewAppWithFetcher(cfg, mockFetcher)
+	err := app.runReimport([]string{"--from", "not-a-date"})
+	if err == nil {
+		t.Error("runReimport() should return error for invalid --from date")
+	}
+}
+
+func TestRun_ReimportCommand_WithoutDB(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	content := `{"senders": ["102"], "db_path": "test.db", "ynab": {"budget_id": "test-budget", "accounts": [{"ynab_account_id": "acc-1", "last4": "1234"}], "start_date": "2026-01-01"}}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create temp config: %v", err)
+	}
+	err := Run([]string{"--config", configPath, "reimport"})
+	if err == nil {
+		t.Skip("Expected error from db or missing API key")
+	}
+}

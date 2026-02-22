@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -180,6 +181,8 @@ func Run(args []string) error {
 		return app.runSystemInstall()
 	case "system_uninstall":
 		return app.runSystemUninstall()
+	case "reimport":
+		return app.runReimport(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}
@@ -390,7 +393,12 @@ func (app *App) runYNABSync() error {
 		}
 	}
 
-	mapper := ynab.NewMapper(ynabAccounts)
+	categoryStore := ynab.NewCategoryStore(app.config.DataFilePath)
+	if err := ynab.SeedCategoriesFromYNAB(client, app.config.YNAB.BudgetID, categoryStore); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to seed categories from YNAB: %v\n", err)
+	}
+
+	mapper := ynab.NewMapper(ynabAccounts, categoryStore)
 	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate)
 
 	result, err := syncer.Sync(filteredMessages, filteredTransactions)
@@ -409,6 +417,58 @@ func (app *App) runYNABSync() error {
 		}
 	}
 
+	if len(result.UnknownPayees) > 0 {
+		fi, _ := os.Stdin.Stat()
+		isInteractive := (fi.Mode() & os.ModeCharDevice) != 0
+		if isInteractive {
+			if err := app.promptForCategories(client, app.config.YNAB.BudgetID, result.UnknownPayees, categoryStore); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to prompt for categories: %v\n", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (app *App) promptForCategories(client *ynab.HTTPClient, budgetID string, unknownPayees []string, categoryStore *ynab.CategoryStore) error {
+	resp, err := client.GetCategories(budgetID)
+	if err != nil {
+		return fmt.Errorf("failed to get categories: %w", err)
+	}
+
+	var categories []ynab.CategoryItem
+	for _, group := range resp.Data.CategoryGroups {
+		for _, cat := range group.Categories {
+			if !cat.Deleted && !cat.Hidden {
+				categories = append(categories, cat)
+			}
+		}
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for _, payee := range unknownPayees {
+		fmt.Printf("\nAssign category for payee %q:\n", payee)
+		for i, cat := range categories {
+			fmt.Printf("  %d: %s\n", i+1, cat.Name)
+		}
+		fmt.Printf("  0: Skip\n")
+		fmt.Print("Enter number: ")
+		if !scanner.Scan() {
+			break
+		}
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" || input == "0" {
+			continue
+		}
+		var choice int
+		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(categories) {
+			fmt.Fprintf(os.Stderr, "Invalid choice, skipping\n")
+			continue
+		}
+		if err := categoryStore.Set(payee, categories[choice-1].ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save category for %s: %v\n", payee, err)
+		}
+	}
 	return nil
 }
 
@@ -476,6 +536,75 @@ func (app *App) runSystemUninstall() error {
 
 	fmt.Println("Successfully uninstalled hourly sync service")
 	return nil
+}
+
+func (app *App) runReimport(args []string) error {
+	apiKey := os.Getenv("YNAB_API_KEY")
+	if apiKey == "" {
+		return fmt.Errorf("YNAB_API_KEY environment variable not set")
+	}
+
+	fromDate := app.config.YNAB.StartDate
+	for i, arg := range args {
+		if arg == "--from" && i+1 < len(args) {
+			fromDate = args[i+1]
+		}
+	}
+
+	from, err := time.Parse("2006-01-02", fromDate)
+	if err != nil {
+		return fmt.Errorf("invalid from date %q: %w", fromDate, err)
+	}
+
+	client := ynab.NewHTTPClient(apiKey)
+	defer client.ClearAPIKey()
+
+	fmt.Printf("This will delete all YNAB transactions from %s onwards and re-import.\n", fromDate)
+	fmt.Print("Continue? (y/N): ")
+	var confirm string
+	fmt.Scanln(&confirm)
+	if strings.ToLower(confirm) != "y" {
+		fmt.Println("Aborted.")
+		return nil
+	}
+
+	fmt.Printf("Fetching transactions from %s...\n", fromDate)
+	resp, err := client.GetTransactions(app.config.YNAB.BudgetID, fromDate)
+	if err != nil {
+		return fmt.Errorf("failed to fetch transactions: %w", err)
+	}
+
+	fmt.Printf("Deleting %d transactions...\n", len(resp.Data.Transactions))
+	for _, tx := range resp.Data.Transactions {
+		if tx.Deleted {
+			continue
+		}
+		if err := client.DeleteTransaction(app.config.YNAB.BudgetID, tx.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete %s: %v\n", tx.ID, err)
+		}
+	}
+
+	syncStore, err := ynab.NewSyncStore(app.config.DataFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize sync store: %w", err)
+	}
+	defer syncStore.Close()
+
+	n, err := syncStore.DeleteSyncedOnOrAfter(from)
+	if err != nil {
+		return fmt.Errorf("failed to clear sync records: %w", err)
+	}
+	if n == 0 {
+		// Legacy records lack TransactionDate; clear all so the re-sync can proceed.
+		n, err = syncStore.DeleteAllSynced()
+		if err != nil {
+			return fmt.Errorf("failed to clear sync records: %w", err)
+		}
+	}
+	fmt.Printf("Cleared %d local sync records\n", n)
+
+	fmt.Println("Re-running sync...")
+	return app.runYNABSync()
 }
 
 func main() {

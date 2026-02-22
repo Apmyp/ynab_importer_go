@@ -62,7 +62,7 @@ func (c *HTTPClient) doRequest(req *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("YNAB API error %d: %s - %s", resp.StatusCode, errorResp.Error.Name, errorResp.Error.Detail)
 	}
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
@@ -167,4 +167,62 @@ func (c *HTTPClient) CreateAccount(budgetID string, payload CreateAccountPayload
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 	return &response, nil
+}
+
+func (c *HTTPClient) GetTransactions(budgetID string, sinceDate string) (*GetTransactionsResponse, error) {
+	url := fmt.Sprintf("%s/budgets/%s/transactions", c.baseURL, budgetID)
+	if sinceDate != "" {
+		url += "?since_date=" + sinceDate
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	body, err := c.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var response GetTransactionsResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	return &response, nil
+}
+
+func (c *HTTPClient) GetCategories(budgetID string) (*GetCategoriesResponse, error) {
+	url := fmt.Sprintf("%s/budgets/%s/categories", c.baseURL, budgetID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	body, err := c.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var response GetCategoriesResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	return &response, nil
+}
+
+func (c *HTTPClient) DeleteTransaction(budgetID, transactionID string) error {
+	url := fmt.Sprintf("%s/budgets/%s/transactions/%s", c.baseURL, budgetID, transactionID)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	_, err = c.doRequest(req)
+	if err != nil {
+		return err
+	}
+	return nil
 }

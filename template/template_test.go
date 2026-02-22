@@ -963,6 +963,11 @@ func TestMatcher_ShouldIgnore(t *testing.T) {
 			wantIgnore: true,
 		},
 		{
+			name:       "Insufficient funds message",
+			content:    "nedostatochno sredstv na schetu",
+			wantIgnore: true,
+		},
+		{
 			name:       "Random unknown message",
 			content:    "Some random message that should not be ignored",
 			wantIgnore: false,

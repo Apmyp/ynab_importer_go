@@ -3,18 +3,21 @@ package ynab
 import "time"
 
 type TransactionPayload struct {
-	AccountID string `json:"account_id"`
-	Date      string `json:"date"`
-	Amount    int64  `json:"amount"` // Milliunits (amount * 1000)
-	PayeeName string `json:"payee_name,omitempty"`
-	Memo      string `json:"memo,omitempty"`
-	Cleared   string `json:"cleared"`
-	ImportID  string `json:"import_id,omitempty"`
+	AccountID         string `json:"account_id"`
+	Date              string `json:"date"`
+	Amount            int64  `json:"amount"` // Milliunits (amount * 1000)
+	PayeeName         string `json:"payee_name,omitempty"`
+	Memo              string `json:"memo,omitempty"`
+	Cleared           string `json:"cleared"`
+	ImportID          string `json:"import_id,omitempty"`
+	TransferAccountID string `json:"transfer_account_id,omitempty"`
+	CategoryID        string `json:"category_id,omitempty"`
 }
 
 type SyncRecord struct {
-	ImportID string    `json:"import_id"`
-	SyncedAt time.Time `json:"synced_at"`
+	ImportID        string    `json:"import_id"`
+	SyncedAt        time.Time `json:"synced_at"`
+	TransactionDate string    `json:"transaction_date,omitempty"`
 }
 
 type YNABAccount struct {
@@ -83,5 +86,41 @@ type Budget struct {
 type GetBudgetsResponse struct {
 	Data struct {
 		Budgets []Budget `json:"budgets"`
+	} `json:"data"`
+}
+
+type TransactionDetail struct {
+	ID           string `json:"id"`
+	Date         string `json:"date"`
+	PayeeName    string `json:"payee_name"`
+	CategoryID   string `json:"category_id"`
+	CategoryName string `json:"category_name"`
+	Memo         string `json:"memo"`
+	Amount       int64  `json:"amount"`
+	Deleted      bool   `json:"deleted"`
+}
+
+type GetTransactionsResponse struct {
+	Data struct {
+		Transactions []TransactionDetail `json:"transactions"`
+	} `json:"data"`
+}
+
+type CategoryItem struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Deleted bool   `json:"deleted"`
+	Hidden  bool   `json:"hidden"`
+}
+
+type CategoryGroup struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Categories []CategoryItem `json:"categories"`
+}
+
+type GetCategoriesResponse struct {
+	Data struct {
+		CategoryGroups []CategoryGroup `json:"category_groups"`
 	} `json:"data"`
 }

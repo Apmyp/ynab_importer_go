@@ -294,6 +294,10 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 }
 
 func (app *App) runYNABSync() error {
+	return app.runYNABSyncWithOptions(false)
+}
+
+func (app *App) runYNABSyncWithOptions(reimport bool) error {
 	apiKey := os.Getenv("YNAB_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("YNAB_API_KEY environment variable not set")
@@ -399,7 +403,7 @@ func (app *App) runYNABSync() error {
 	}
 
 	mapper := ynab.NewMapper(ynabAccounts, categoryStore)
-	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate)
+	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate, reimport)
 
 	result, err := syncer.Sync(filteredMessages, filteredTransactions)
 	if err != nil {
@@ -604,7 +608,7 @@ func (app *App) runReimport(args []string) error {
 	fmt.Printf("Cleared %d local sync records\n", n)
 
 	fmt.Println("Re-running sync...")
-	return app.runYNABSync()
+	return app.runYNABSyncWithOptions(true)
 }
 
 func main() {

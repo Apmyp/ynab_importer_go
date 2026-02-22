@@ -25,6 +25,7 @@ type Syncer struct {
 	mapper    *Mapper
 	budgetID  string
 	startDate time.Time
+	reimport  bool
 }
 
 type SyncResult struct {
@@ -36,13 +37,14 @@ type SyncResult struct {
 	UnknownPayees []string
 }
 
-func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time) *Syncer {
+func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time, reimport bool) *Syncer {
 	return &Syncer{
 		store:     store,
 		client:    client,
 		mapper:    mapper,
 		budgetID:  budgetID,
 		startDate: startDate,
+		reimport:  reimport,
 	}
 }
 
@@ -163,6 +165,10 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 			if !containsString(result.UnknownPayees, payload.PayeeName) {
 				result.UnknownPayees = append(result.UnknownPayees, payload.PayeeName)
 			}
+		}
+
+		if s.reimport {
+			payload.ImportID = ""
 		}
 
 		toSync = append(toSync, *payload)

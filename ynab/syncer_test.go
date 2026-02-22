@@ -55,7 +55,7 @@ func TestNewSyncer(t *testing.T) {
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 	if syncer == nil {
 		t.Error("NewSyncer() returned nil")
 	}
@@ -88,7 +88,7 @@ func TestSyncer_Sync_FiltersByDate(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	// Create messages - one before startDate, one after
 	messages := []*message.Message{
@@ -153,7 +153,7 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 		},
 	}
 
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
 	if err != nil {
@@ -181,7 +181,7 @@ func TestSyncer_Sync_HandlesAPIError(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	msg := &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
 	tx := &template.Transaction{
@@ -226,7 +226,7 @@ func TestSyncer_Sync_BatchesTransactions(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	// Create 150 transactions
 	var messages []*message.Message
@@ -368,7 +368,7 @@ func TestSyncer_Sync_TransferPair_SkipsCreditSide(t *testing.T) {
 		{YNABAccountID: "acc-credit", Last4: "2222"},
 	}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
 	messages := []*message.Message{
@@ -429,7 +429,7 @@ func TestSyncer_Sync_NonTransferTransactionsUnaffected(t *testing.T) {
 		{YNABAccountID: "acc-1", Last4: "1111"},
 	}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
 	messages := []*message.Message{
@@ -500,7 +500,7 @@ func TestSyncer_Sync_TransferPair_CreditAccountNotFound(t *testing.T) {
 		{YNABAccountID: "acc-debit", Last4: "1111"},
 	}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
 	messages := []*message.Message{
@@ -553,7 +553,7 @@ func TestSyncer_Sync_TracksUnknownPayees(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	messages := []*message.Message{
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
@@ -594,7 +594,7 @@ func TestSyncer_Sync_NoUnknownPayees_WhenCategoryAssigned(t *testing.T) {
 	_ = categoryStore.Set("Coffee Shop", "cat-food")
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, categoryStore)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	messages := []*message.Message{
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
@@ -627,7 +627,7 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	messages := []*message.Message{
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
@@ -652,6 +652,105 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 	}
 }
 
+func TestSyncer_Sync_ReimportMode_ClearsImportIDInPayload(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	var capturedPayloads []TransactionPayload
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			capturedPayloads = append(capturedPayloads, transactions...)
+			resp := &CreateTransactionsResponse{}
+			for range transactions {
+				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
+			}
+			return resp, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, true)
+
+	msg := &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
+	tx := &template.Transaction{
+		Card:      "9..1234",
+		Converted: template.Amount{Value: 100, Currency: "MDL"},
+		Operation: "Debitare",
+	}
+
+	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if result.Synced != 1 {
+		t.Fatalf("Synced = %d, want 1", result.Synced)
+	}
+
+	if len(capturedPayloads) != 1 {
+		t.Fatalf("Expected 1 payload sent to API, got %d", len(capturedPayloads))
+	}
+
+	if capturedPayloads[0].ImportID != "" {
+		t.Errorf("ImportID = %q, want empty in reimport mode", capturedPayloads[0].ImportID)
+	}
+
+	computedImportID := mapper.GenerateImportID(msg, tx)
+	synced, err := store.IsSynced(computedImportID)
+	if err != nil {
+		t.Fatalf("IsSynced() error = %v", err)
+	}
+	if !synced {
+		t.Errorf("local store should record computed importID %q after reimport sync", computedImportID)
+	}
+}
+
+func TestSyncer_Sync_NormalMode_KeepsImportIDInPayload(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	var capturedPayloads []TransactionPayload
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			capturedPayloads = append(capturedPayloads, transactions...)
+			resp := &CreateTransactionsResponse{}
+			for range transactions {
+				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
+			}
+			return resp, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
+
+	msg := &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
+	tx := &template.Transaction{
+		Card:      "9..1234",
+		Converted: template.Amount{Value: 100, Currency: "MDL"},
+		Operation: "Debitare",
+	}
+
+	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if result.Synced != 1 {
+		t.Fatalf("Synced = %d, want 1", result.Synced)
+	}
+
+	if len(capturedPayloads) != 1 {
+		t.Fatalf("Expected 1 payload sent to API, got %d", len(capturedPayloads))
+	}
+
+	if capturedPayloads[0].ImportID == "" {
+		t.Errorf("ImportID should not be empty in normal mode")
+	}
+}
+
 func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
 	store, _ := NewSyncStore(t.TempDir() + "/data.json")
 	defer store.Close()
@@ -668,7 +767,7 @@ func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
 
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
 	messages := []*message.Message{
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},

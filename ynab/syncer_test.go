@@ -620,7 +620,9 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 	client := &mockClient{
 		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
 			resp := &CreateTransactionsResponse{}
-			resp.Data.DuplicateImportIDs = []string{"YNAB:abc123", "YNAB:def456"}
+			for _, tx := range transactions {
+				resp.Data.DuplicateImportIDs = append(resp.Data.DuplicateImportIDs, tx.ImportID)
+			}
 			return resp, nil
 		},
 	}
@@ -641,14 +643,16 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	if len(result.Warnings) != 2 {
-		t.Fatalf("Warnings = %v, want 2 entries", result.Warnings)
+	if len(result.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want 1 entry", result.Warnings)
 	}
-	if result.Warnings[0] != "Warning: YNAB skipped as duplicate: YNAB:abc123" {
-		t.Errorf("Warnings[0] = %q, want warning about YNAB:abc123", result.Warnings[0])
+	if result.Synced != 0 {
+		t.Errorf("Synced = %d, want 0 (duplicate should not be recorded)", result.Synced)
 	}
-	if result.Warnings[1] != "Warning: YNAB skipped as duplicate: YNAB:def456" {
-		t.Errorf("Warnings[1] = %q, want warning about YNAB:def456", result.Warnings[1])
+
+	allSynced, _ := store.GetAllSynced()
+	if len(allSynced) != 0 {
+		t.Errorf("store has %d records, want 0 (duplicate should not be stored)", len(allSynced))
 	}
 }
 

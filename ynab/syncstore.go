@@ -155,20 +155,3 @@ func (s *SyncStore) DeleteSyncedOnOrAfter(date time.Time) (int, error) {
 	}
 	return deleted, nil
 }
-
-func (s *SyncStore) DeleteAllSynced() (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := s.readFile()
-	if err != nil {
-		return 0, err
-	}
-
-	deleted := len(data.YNABSyncedTransactions)
-	data.YNABSyncedTransactions = []SyncRecord{}
-	if err := s.writeFile(data); err != nil {
-		return 0, err
-	}
-	return deleted, nil
-}

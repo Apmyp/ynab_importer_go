@@ -429,8 +429,8 @@ func (app *App) runYNABSyncWithOptions(reimport bool) error {
 	}
 
 	if len(result.UnknownPayees) > 0 {
-		fi, _ := os.Stdin.Stat()
-		isInteractive := (fi.Mode() & os.ModeCharDevice) != 0
+		stdinInfo, stdinErr := os.Stdin.Stat()
+		isInteractive := stdinErr == nil && (stdinInfo.Mode()&os.ModeCharDevice) != 0
 		if isInteractive {
 			if err := app.promptForCategories(client, app.config.YNAB.BudgetID, result.UnknownPayees, categoryStore); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to prompt for categories: %v\n", err)
@@ -579,6 +579,10 @@ func (app *App) runReimport(args []string) error {
 		return nil
 	}
 
+	return app.doReimport(client, from, fromDate)
+}
+
+func (app *App) doReimport(client ynab.YNABClient, from time.Time, fromDate string) error {
 	fmt.Printf("Fetching transactions from %s...\n", fromDate)
 	resp, err := client.GetTransactions(app.config.YNAB.BudgetID, fromDate)
 	if err != nil {
@@ -591,7 +595,7 @@ func (app *App) runReimport(args []string) error {
 			continue
 		}
 		if err := client.DeleteTransaction(app.config.YNAB.BudgetID, tx.ID); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete %s: %v\n", tx.ID, err)
+			return fmt.Errorf("failed to delete transaction %s, aborting reimport to avoid duplicates: %w", tx.ID, err)
 		}
 	}
 

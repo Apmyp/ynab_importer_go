@@ -797,6 +797,131 @@ func TestSyncer_Sync_RecordsSyncWithTransactionDate(t *testing.T) {
 	}
 }
 
+func TestSyncer_Sync_TransferPair_CreditSyncsWhenDebitBeforeStartDate(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	var capturedTransactions []TransactionPayload
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			capturedTransactions = append(capturedTransactions, transactions...)
+			resp := &CreateTransactionsResponse{}
+			for range transactions {
+				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
+			}
+			return resp, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{
+		{YNABAccountID: "acc-debit", Last4: "1111"},
+		{YNABAccountID: "acc-credit", Last4: "2222"},
+	}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-02")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
+
+	// Debit is 2 minutes before start date; credit is 2 minutes after.
+	// Both are within the 5-minute transfer detection window.
+	messages := []*message.Message{
+		{Timestamp: time.Date(2026, 1, 1, 23, 58, 0, 0, time.UTC), Sender: "102"},
+		{Timestamp: time.Date(2026, 1, 2, 0, 2, 0, 0, time.UTC), Sender: "102"},
+	}
+	transactions := []*template.Transaction{
+		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare", Address: "Transfer"},
+		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
+	}
+
+	result, err := syncer.Sync(messages, transactions)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Debit is before start date and skipped; credit is after start date and
+	// should be synced as a regular transaction (not dropped).
+	if result.Synced != 1 {
+		t.Errorf("Synced = %d, want 1 (credit synced independently)", result.Synced)
+	}
+	if result.Skipped != 1 {
+		t.Errorf("Skipped = %d, want 1 (debit before start date)", result.Skipped)
+	}
+	if len(capturedTransactions) != 1 {
+		t.Fatalf("Expected 1 transaction sent to API, got %d", len(capturedTransactions))
+	}
+	// Credit synced as regular inbound; no transfer account link expected.
+	if capturedTransactions[0].AccountID != "acc-credit" {
+		t.Errorf("AccountID = %q, want acc-credit", capturedTransactions[0].AccountID)
+	}
+	if capturedTransactions[0].TransferAccountID != "" {
+		t.Errorf("TransferAccountID = %q, want empty (credit processed independently)", capturedTransactions[0].TransferAccountID)
+	}
+}
+
+func TestSyncer_Sync_TransferPair_CreditSkippedWhenDebitAlreadySynced(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	mapper := NewMapper([]YNABAccount{
+		{YNABAccountID: "acc-debit", Last4: "1111"},
+		{YNABAccountID: "acc-credit", Last4: "2222"},
+	}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+
+	// Debit 2 minutes before startDate (23:58 Dec 31) so the pair is within the
+	// 5-minute detection window. Credit is exactly at startDate midnight so it is
+	// NOT caught by the general date filter (Before is strict). The only reason
+	// the credit gets skipped is the debitSynced check at syncer.go:134-142 —
+	// that's what this test validates.
+	debitTime := time.Date(2025, 12, 31, 23, 58, 0, 0, time.UTC)
+	creditTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	debitMsg := &message.Message{Timestamp: debitTime, Sender: "102"}
+	debitTx := &template.Transaction{
+		Card:      "9..1111",
+		Converted: template.Amount{Value: 500.00, Currency: "MDL"},
+		Operation: "Debitare",
+		Address:   "Transfer",
+	}
+
+	// Pre-record the debit as already synced (simulating a previous run).
+	debitImportID := mapper.GenerateImportID(debitMsg, debitTx)
+	store.RecordSync(&SyncRecord{ImportID: debitImportID, SyncedAt: time.Now(), TransactionDate: "2025-12-31"})
+
+	callCount := 0
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			callCount++
+			return &CreateTransactionsResponse{}, nil
+		},
+	}
+
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
+
+	messages := []*message.Message{
+		debitMsg,
+		{Timestamp: creditTime, Sender: "102"},
+	}
+	transactions := []*template.Transaction{
+		debitTx,
+		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
+	}
+
+	result, err := syncer.Sync(messages, transactions)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Both should be skipped: debit already synced, credit correctly skipped
+	// because its debit partner was previously synced (YNAB auto-created the credit).
+	if result.Synced != 0 {
+		t.Errorf("Synced = %d, want 0 (debit already synced, credit should be skipped)", result.Synced)
+	}
+	if result.Skipped != 2 {
+		t.Errorf("Skipped = %d, want 2", result.Skipped)
+	}
+	if callCount != 0 {
+		t.Errorf("API called %d times, want 0", callCount)
+	}
+}
+
 func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
 	store, _ := NewSyncStore(t.TempDir() + "/data.json")
 	defer store.Close()

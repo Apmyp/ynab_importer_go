@@ -14,8 +14,39 @@ import (
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
+	"github.com/apmyp/ynab_importer_go/ynab"
 	_ "modernc.org/sqlite"
 )
+
+type mockYNABClient struct {
+	getTransactionsFunc   func(budgetID, sinceDate string) (*ynab.GetTransactionsResponse, error)
+	deleteTransactionFunc func(budgetID, transactionID string) error
+}
+
+func (m *mockYNABClient) CreateTransactions(budgetID string, transactions []ynab.TransactionPayload) (*ynab.CreateTransactionsResponse, error) {
+	return &ynab.CreateTransactionsResponse{}, nil
+}
+func (m *mockYNABClient) GetAccounts(budgetID string) (*ynab.GetAccountsResponse, error) {
+	return &ynab.GetAccountsResponse{}, nil
+}
+func (m *mockYNABClient) CreateAccount(budgetID string, payload ynab.CreateAccountPayload) (*ynab.CreateAccountResponse, error) {
+	return &ynab.CreateAccountResponse{}, nil
+}
+func (m *mockYNABClient) GetTransactions(budgetID, sinceDate string) (*ynab.GetTransactionsResponse, error) {
+	if m.getTransactionsFunc != nil {
+		return m.getTransactionsFunc(budgetID, sinceDate)
+	}
+	return &ynab.GetTransactionsResponse{}, nil
+}
+func (m *mockYNABClient) GetCategories(budgetID string) (*ynab.GetCategoriesResponse, error) {
+	return &ynab.GetCategoriesResponse{}, nil
+}
+func (m *mockYNABClient) DeleteTransaction(budgetID, transactionID string) error {
+	if m.deleteTransactionFunc != nil {
+		return m.deleteTransactionFunc(budgetID, transactionID)
+	}
+	return nil
+}
 
 // MockFetcher is a test double for MessageFetcher
 type MockFetcher struct {
@@ -883,7 +914,7 @@ func TestApp_filterForSync_SkipsDeclinedTransactions(t *testing.T) {
 	app := NewApp(cfg, "")
 
 	approved := &ParsedMessage{
-		Message:  &message.Message{Timestamp: time.Now()},
+		Message:     &message.Message{Timestamp: time.Now()},
 		HasTemplate: true,
 		Transaction: &template.Transaction{
 			Status:    "Odobrena",
@@ -891,7 +922,7 @@ func TestApp_filterForSync_SkipsDeclinedTransactions(t *testing.T) {
 		},
 	}
 	declined := &ParsedMessage{
-		Message:  &message.Message{Timestamp: time.Now()},
+		Message:     &message.Message{Timestamp: time.Now()},
 		HasTemplate: true,
 		Transaction: &template.Transaction{
 			Status:    "Decline§TranNotPermToCardHolder",
@@ -917,14 +948,14 @@ func TestApp_filterForSync_SkipsNonMDL(t *testing.T) {
 	app := NewApp(cfg, "")
 
 	mdl := &ParsedMessage{
-		Message:  &message.Message{Timestamp: time.Now()},
+		Message:     &message.Message{Timestamp: time.Now()},
 		HasTemplate: true,
 		Transaction: &template.Transaction{
 			Converted: template.Amount{Value: 100, Currency: "MDL"},
 		},
 	}
 	usd := &ParsedMessage{
-		Message:  &message.Message{Timestamp: time.Now()},
+		Message:     &message.Message{Timestamp: time.Now()},
 		HasTemplate: true,
 		Transaction: &template.Transaction{
 			Converted: template.Amount{Value: 50, Currency: "USD"},
@@ -1093,5 +1124,74 @@ func TestRun_ReimportCommand_WithoutDB(t *testing.T) {
 	err := Run([]string{"--config", configPath, "reimport"})
 	if err == nil {
 		t.Skip("Expected error from db or missing API key")
+	}
+}
+
+func TestApp_doReimport_AbortsOnDeleteError(t *testing.T) {
+	dataFilePath := filepath.Join(t.TempDir(), "data.json")
+
+	syncStore, err := ynab.NewSyncStore(dataFilePath)
+	if err != nil {
+		t.Fatalf("NewSyncStore() error = %v", err)
+	}
+	syncStore.RecordSync(&ynab.SyncRecord{
+		ImportID:        "YNAB:existing",
+		SyncedAt:        time.Now(),
+		TransactionDate: "2026-01-15",
+	})
+	syncStore.Close()
+
+	cfg := &config.Config{
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: dataFilePath,
+	}
+
+	deleteCallCount := 0
+	mockClient := &mockYNABClient{
+		getTransactionsFunc: func(budgetID, sinceDate string) (*ynab.GetTransactionsResponse, error) {
+			resp := &ynab.GetTransactionsResponse{}
+			resp.Data.Transactions = []ynab.TransactionDetail{
+				{ID: "tx-ynab-1", Deleted: false},
+				{ID: "tx-ynab-2", Deleted: false},
+				{ID: "tx-ynab-3", Deleted: false},
+			}
+			return resp, nil
+		},
+		deleteTransactionFunc: func(budgetID, transactionID string) error {
+			deleteCallCount++
+			return errors.New("network error")
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, &MockFetcher{messages: []*message.Message{}})
+	from, _ := time.Parse("2006-01-02", "2026-01-01")
+	err = app.doReimport(mockClient, from, "2026-01-01")
+
+	if err == nil {
+		t.Fatal("doReimport() should return error when DeleteTransaction fails")
+	}
+	if !strings.Contains(err.Error(), "aborting reimport") {
+		t.Errorf("error = %q, want message containing 'aborting reimport'", err.Error())
+	}
+	if deleteCallCount != 1 {
+		t.Errorf("DeleteTransaction called %d times, want 1 (fail-fast after first error)", deleteCallCount)
+	}
+
+	// Verify local sync store was NOT modified (abort happened before clearing records).
+	verifyStore, err := ynab.NewSyncStore(dataFilePath)
+	if err != nil {
+		t.Fatalf("NewSyncStore() error = %v", err)
+	}
+	defer verifyStore.Close()
+
+	records, err := verifyStore.GetAllSynced()
+	if err != nil {
+		t.Fatalf("GetAllSynced() error = %v", err)
+	}
+	if len(records) != 1 {
+		t.Errorf("sync store has %d records after aborted reimport, want 1 (unchanged)", len(records))
 	}
 }

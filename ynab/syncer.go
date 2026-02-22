@@ -111,8 +111,10 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 
 	transferPairs := detectTransferPairs(messages, transactions)
 	creditSideIndexes := make(map[int]bool)
-	for _, creditIdx := range transferPairs {
+	creditToDebit := make(map[int]int)
+	for debitIdx, creditIdx := range transferPairs {
 		creditSideIndexes[creditIdx] = true
+		creditToDebit[creditIdx] = debitIdx
 	}
 
 	var toSync []TransactionPayload
@@ -123,8 +125,21 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 		tx := transactions[i]
 
 		if creditSideIndexes[i] {
-			result.Skipped++
-			continue
+			debitIdx := creditToDebit[i]
+			debitMsg := messages[debitIdx]
+			if !debitMsg.Timestamp.Before(s.startDate) {
+				result.Skipped++
+				continue
+			}
+			debitImportID := s.mapper.GenerateImportID(debitMsg, transactions[debitIdx])
+			debitSynced, err := s.store.IsSynced(debitImportID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to check debit sync status: %w", err)
+			}
+			if debitSynced {
+				result.Skipped++
+				continue
+			}
 		}
 
 		if msg.Timestamp.Before(s.startDate) {

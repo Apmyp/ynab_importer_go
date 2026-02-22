@@ -257,9 +257,8 @@ func TestRun_MissingTemplatesCommand(t *testing.T) {
 
 	// This will fail because db won't be found, but tests the command parsing
 	err := Run([]string{"--config", configPath, "missing_templates"})
-	// Will fail because of db access
 	if err == nil {
-		t.Skip("Expected error from db access")
+		t.Error("expected error from missing db, got nil")
 	}
 }
 
@@ -1021,9 +1020,8 @@ func TestRun_YNABSyncCommand(t *testing.T) {
 
 	// This will fail because db won't be found, but tests the command parsing
 	err := Run([]string{"--config", configPath, "ynab_sync"})
-	// Will fail because of db execution or missing API key
 	if err == nil {
-		t.Skip("Expected error from db or missing API key")
+		t.Error("expected error from missing db or missing API key, got nil")
 	}
 }
 
@@ -1123,7 +1121,7 @@ func TestRun_ReimportCommand_WithoutDB(t *testing.T) {
 	}
 	err := Run([]string{"--config", configPath, "reimport"})
 	if err == nil {
-		t.Skip("Expected error from db or missing API key")
+		t.Error("expected error from missing API key, got nil")
 	}
 }
 
@@ -1168,7 +1166,7 @@ func TestApp_doReimport_AbortsOnDeleteError(t *testing.T) {
 
 	app := NewAppWithFetcher(cfg, &MockFetcher{messages: []*message.Message{}})
 	from, _ := time.Parse("2006-01-02", "2026-01-01")
-	err = app.doReimport(mockClient, from, "2026-01-01")
+	err = app.doReimport(mockClient, from)
 
 	if err == nil {
 		t.Fatal("doReimport() should return error when DeleteTransaction fails")
@@ -1193,5 +1191,40 @@ func TestApp_doReimport_AbortsOnDeleteError(t *testing.T) {
 	}
 	if len(records) != 1 {
 		t.Errorf("sync store has %d records after aborted reimport, want 1 (unchanged)", len(records))
+	}
+}
+
+func TestApp_doReimport_SkipsAlreadyDeletedTransactions(t *testing.T) {
+	cfg := &config.Config{
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "2026-01-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	var deletedIDs []string
+	mockClient := &mockYNABClient{
+		getTransactionsFunc: func(budgetID, sinceDate string) (*ynab.GetTransactionsResponse, error) {
+			resp := &ynab.GetTransactionsResponse{}
+			resp.Data.Transactions = []ynab.TransactionDetail{
+				{ID: "tx-active", Deleted: false},
+				{ID: "tx-deleted", Deleted: true},
+				{ID: "tx-active-2", Deleted: false},
+			}
+			return resp, nil
+		},
+		deleteTransactionFunc: func(budgetID, transactionID string) error {
+			deletedIDs = append(deletedIDs, transactionID)
+			return errors.New("stop after tracking")
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, &MockFetcher{messages: []*message.Message{}})
+	from, _ := time.Parse("2006-01-02", "2026-01-01")
+	app.doReimport(mockClient, from)
+
+	if len(deletedIDs) != 1 || deletedIDs[0] != "tx-active" {
+		t.Errorf("DeleteTransaction called for %v, want only [tx-active] (soft-deleted tx skipped)", deletedIDs)
 	}
 }

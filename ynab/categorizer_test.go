@@ -78,7 +78,9 @@ func TestSeedCategoriesFromYNAB_SkipsEmptyPayee(t *testing.T) {
 		},
 	}
 
-	_ = SeedCategoriesFromYNAB(client, "budget-1", store)
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
 
 	all, _ := store.All()
 	if len(all) != 1 {
@@ -101,7 +103,9 @@ func TestSeedCategoriesFromYNAB_SkipsEmptyCategory(t *testing.T) {
 		},
 	}
 
-	_ = SeedCategoriesFromYNAB(client, "budget-1", store)
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
 
 	all, _ := store.All()
 	if len(all) != 1 {
@@ -124,7 +128,9 @@ func TestSeedCategoriesFromYNAB_SkipsInflowCategory(t *testing.T) {
 		},
 	}
 
-	_ = SeedCategoriesFromYNAB(client, "budget-1", store)
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
 
 	all, _ := store.All()
 	if len(all) != 1 {
@@ -147,7 +153,9 @@ func TestSeedCategoriesFromYNAB_RequestsLast12Months(t *testing.T) {
 		},
 	}
 
-	_ = SeedCategoriesFromYNAB(client, "budget-1", store)
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
 
 	if capturedSinceDate == "" {
 		t.Error("Expected a since_date to be passed, got empty string")

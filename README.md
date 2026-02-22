@@ -95,6 +95,25 @@ Features:
 - Skips already synced transactions (deduplication via import ID)
 - Skips declined transactions
 - Converts foreign currency to MDL using National Bank of Moldova rates
+- Prompts interactively to assign YNAB categories to new payees (persisted for future syncs)
+
+### Reimport Transactions
+
+Delete YNAB transactions from a given date onwards and re-import them from scratch. Useful when
+transactions are missing, duplicated, or have incorrect data in YNAB.
+
+```bash
+./ynab_importer_go reimport
+```
+
+By default uses `ynab.start_date` from config. To reimport from a specific date:
+
+```bash
+./ynab_importer_go reimport --from 2026-01-28
+```
+
+You will be prompted to confirm before any deletions occur. Reimport mode bypasses YNAB's
+`import_id` deduplication so that previously soft-deleted transactions can be re-created.
 
 ### Find Missing Templates
 
@@ -169,4 +188,4 @@ Non-transaction messages (OTP codes, marketing, etc.) are ignored.
 
 ## Data Storage
 
-Exchange rates and sync records are cached in `ynab_importer_go_data.json` (or custom path via `--data-file`).
+Exchange rates, sync records, and payee-to-category mappings are cached in `ynab_importer_go_data.json` (or custom path via `--data-file`).

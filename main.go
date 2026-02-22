@@ -441,7 +441,7 @@ func (app *App) runYNABSyncWithOptions(reimport bool) error {
 	return nil
 }
 
-func (app *App) promptForCategories(client *ynab.HTTPClient, budgetID string, unknownPayees []string, categoryStore *ynab.CategoryStore) error {
+func (app *App) promptForCategories(client ynab.YNABClient, budgetID string, unknownPayees []string, categoryStore *ynab.CategoryStore) error {
 	resp, err := client.GetCategories(budgetID)
 	if err != nil {
 		return fmt.Errorf("failed to get categories: %w", err)
@@ -579,21 +579,25 @@ func (app *App) runReimport(args []string) error {
 		return nil
 	}
 
-	return app.doReimport(client, from, fromDate)
+	return app.doReimport(client, from)
 }
 
-func (app *App) doReimport(client ynab.YNABClient, from time.Time, fromDate string) error {
+func (app *App) doReimport(client ynab.YNABClient, from time.Time) error {
+	fromDate := from.Format("2006-01-02")
 	fmt.Printf("Fetching transactions from %s...\n", fromDate)
 	resp, err := client.GetTransactions(app.config.YNAB.BudgetID, fromDate)
 	if err != nil {
 		return fmt.Errorf("failed to fetch transactions: %w", err)
 	}
 
-	fmt.Printf("Deleting %d transactions...\n", len(resp.Data.Transactions))
+	var toDelete []ynab.TransactionDetail
 	for _, tx := range resp.Data.Transactions {
-		if tx.Deleted {
-			continue
+		if !tx.Deleted {
+			toDelete = append(toDelete, tx)
 		}
+	}
+	fmt.Printf("Deleting %d transactions...\n", len(toDelete))
+	for _, tx := range toDelete {
 		if err := client.DeleteTransaction(app.config.YNAB.BudgetID, tx.ID); err != nil {
 			return fmt.Errorf("failed to delete transaction %s, aborting reimport to avoid duplicates: %w", tx.ID, err)
 		}

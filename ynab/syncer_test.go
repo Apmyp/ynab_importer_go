@@ -2,6 +2,7 @@ package ynab
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -591,7 +592,9 @@ func TestSyncer_Sync_NoUnknownPayees_WhenCategoryAssigned(t *testing.T) {
 	}
 
 	categoryStore := NewCategoryStore(filePath)
-	_ = categoryStore.Set("Coffee Shop", "cat-food")
+	if err := categoryStore.Set("Coffee Shop", "cat-food"); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
 	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, categoryStore)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
@@ -645,6 +648,9 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 
 	if len(result.Warnings) != 1 {
 		t.Fatalf("Warnings = %v, want 1 entry", result.Warnings)
+	}
+	if !strings.HasPrefix(result.Warnings[0], "Warning: YNAB skipped as duplicate: YNAB:") {
+		t.Errorf("Warnings[0] = %q, want prefix \"Warning: YNAB skipped as duplicate: YNAB:\"", result.Warnings[0])
 	}
 	if result.Synced != 0 {
 		t.Errorf("Synced = %d, want 0 (duplicate should not be recorded)", result.Synced)

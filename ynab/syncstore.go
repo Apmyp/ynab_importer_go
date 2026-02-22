@@ -2,7 +2,6 @@ package ynab
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"sync"
 	"time"
@@ -118,8 +117,6 @@ func (s *SyncStore) GetAllSynced() ([]SyncRecord, error) {
 func (s *SyncStore) Close() error {
 	return nil
 }
-
-var ErrNotSynced = errors.New("transaction not synced")
 
 func (s *SyncStore) DeleteSyncedOnOrAfter(date time.Time) (int, error) {
 	s.mu.Lock()

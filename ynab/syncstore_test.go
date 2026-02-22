@@ -74,6 +74,45 @@ func TestSyncStore_RecordSync(t *testing.T) {
 	}
 }
 
+func TestSyncStore_RecordSync_UpdatesExistingRecord(t *testing.T) {
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "data.json")
+	store, err := NewSyncStore(storePath)
+	if err != nil {
+		t.Fatalf("NewSyncStore() error = %v", err)
+	}
+	defer store.Close()
+
+	first := &SyncRecord{
+		ImportID:        "YNAB:abc123",
+		SyncedAt:        time.Now().UTC(),
+		TransactionDate: "2026-01-10",
+	}
+	if err := store.RecordSync(first); err != nil {
+		t.Fatalf("RecordSync() first error = %v", err)
+	}
+
+	updated := &SyncRecord{
+		ImportID:        "YNAB:abc123",
+		SyncedAt:        time.Now().UTC(),
+		TransactionDate: "2026-02-15",
+	}
+	if err := store.RecordSync(updated); err != nil {
+		t.Fatalf("RecordSync() update error = %v", err)
+	}
+
+	all, err := store.GetAllSynced()
+	if err != nil {
+		t.Fatalf("GetAllSynced() error = %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("GetAllSynced() returned %d records, want 1 (update should not duplicate)", len(all))
+	}
+	if all[0].TransactionDate != "2026-02-15" {
+		t.Errorf("TransactionDate = %q, want 2026-02-15 (record should be updated)", all[0].TransactionDate)
+	}
+}
+
 func TestSyncStore_GetAllSynced(t *testing.T) {
 	dir := t.TempDir()
 	storePath := filepath.Join(dir, "data.json")

@@ -751,6 +751,52 @@ func TestSyncer_Sync_NormalMode_KeepsImportIDInPayload(t *testing.T) {
 	}
 }
 
+func TestSyncer_Sync_RecordsSyncWithTransactionDate(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := NewSyncStore(dir + "/data.json")
+	defer store.Close()
+
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			resp := &CreateTransactionsResponse{}
+			for range transactions {
+				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
+			}
+			return resp, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
+
+	txDate := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
+	messages := []*message.Message{
+		{Timestamp: txDate, Sender: "102"},
+	}
+	transactions := []*template.Transaction{
+		{Card: "9..1234", Converted: template.Amount{Value: 100, Currency: "MDL"}, Operation: "Debitare"},
+	}
+
+	_, err := syncer.Sync(messages, transactions)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	records, err := store.GetAllSynced()
+	if err != nil {
+		t.Fatalf("GetAllSynced() error = %v", err)
+	}
+
+	if len(records) != 1 {
+		t.Fatalf("GetAllSynced() returned %d records, want 1", len(records))
+	}
+
+	if records[0].TransactionDate != "2026-01-15" {
+		t.Errorf("TransactionDate = %q, want %q", records[0].TransactionDate, "2026-01-15")
+	}
+}
+
 func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
 	store, _ := NewSyncStore(t.TempDir() + "/data.json")
 	defer store.Close()

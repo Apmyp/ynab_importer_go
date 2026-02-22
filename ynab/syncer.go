@@ -117,7 +117,6 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 
 	var toSync []TransactionPayload
 	var toSyncImportIDs []string
-	var toSyncDates []string
 
 	for i := 0; i < len(transactions); i++ {
 		msg := messages[i]
@@ -174,7 +173,6 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 
 		toSync = append(toSync, *payload)
 		toSyncImportIDs = append(toSyncImportIDs, importID)
-		toSyncDates = append(toSyncDates, payload.Date)
 	}
 
 	if len(toSync) == 0 {
@@ -190,7 +188,6 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 
 		batch := toSync[i:end]
 		batchImportIDs := toSyncImportIDs[i:end]
-		batchDates := toSyncDates[i:end]
 
 		resp, err := s.client.CreateTransactions(s.budgetID, batch)
 		if err != nil {
@@ -205,7 +202,7 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 			record := &SyncRecord{
 				ImportID:        importID,
 				SyncedAt:        time.Now().UTC(),
-				TransactionDate: batchDates[j],
+				TransactionDate: batch[j].Date,
 			}
 			if err := s.store.RecordSync(record); err != nil {
 				return result, fmt.Errorf("failed to record sync: %w", err)

@@ -293,6 +293,23 @@ func (app *App) convertTransactions(parsedMessages []*ParsedMessage) {
 	}
 }
 
+func (app *App) filterForSync(parsedMessages []*ParsedMessage) ([]*message.Message, []*template.Transaction) {
+	var filteredMessages []*message.Message
+	var filteredTransactions []*template.Transaction
+	for _, pm := range parsedMessages {
+		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
+			if strings.HasPrefix(pm.Transaction.Status, "Decline") {
+				continue
+			}
+			if pm.Transaction.Converted.Currency == "MDL" {
+				filteredMessages = append(filteredMessages, pm.Message)
+				filteredTransactions = append(filteredTransactions, pm.Transaction)
+			}
+		}
+	}
+	return filteredMessages, filteredTransactions
+}
+
 func (app *App) runYNABSync() error {
 	return app.runYNABSyncWithOptions(false)
 }
@@ -344,20 +361,7 @@ func (app *App) runYNABSyncWithOptions(reimport bool) error {
 
 	app.convertTransactions(parsedMessages)
 
-	var filteredMessages []*message.Message
-	var filteredTransactions []*template.Transaction
-	for _, pm := range parsedMessages {
-		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
-			if strings.HasPrefix(pm.Transaction.Status, "Decline") {
-				continue
-			}
-
-			if pm.Transaction.Converted.Currency == "MDL" {
-				filteredMessages = append(filteredMessages, pm.Message)
-				filteredTransactions = append(filteredTransactions, pm.Transaction)
-			}
-		}
-	}
+	filteredMessages, filteredTransactions := app.filterForSync(parsedMessages)
 
 	fmt.Printf("Found %d MDL transactions to sync\n", len(filteredTransactions))
 
@@ -419,6 +423,9 @@ func (app *App) runYNABSyncWithOptions(reimport bool) error {
 		for _, failure := range result.Failed {
 			fmt.Printf("    - %s\n", failure)
 		}
+	}
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "%s\n", w)
 	}
 
 	if len(result.UnknownPayees) > 0 {
@@ -597,13 +604,6 @@ func (app *App) runReimport(args []string) error {
 	n, err := syncStore.DeleteSyncedOnOrAfter(from)
 	if err != nil {
 		return fmt.Errorf("failed to clear sync records: %w", err)
-	}
-	if n == 0 {
-		// Legacy records lack TransactionDate; clear all so the re-sync can proceed.
-		n, err = syncStore.DeleteAllSynced()
-		if err != nil {
-			return fmt.Errorf("failed to clear sync records: %w", err)
-		}
 	}
 	fmt.Printf("Cleared %d local sync records\n", n)
 

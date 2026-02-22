@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -427,6 +429,7 @@ func TestChatDBFetcher_FetchMessages_ValidDB(t *testing.T) {
 			ROWID INTEGER PRIMARY KEY,
 			handle_id INTEGER,
 			text TEXT,
+			attributedBody BLOB,
 			date INTEGER,
 			is_from_me INTEGER
 		);
@@ -644,14 +647,26 @@ func TestApp_runMissingTemplates_FiltersMeMessages(t *testing.T) {
 		},
 	}
 
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	app := NewAppWithFetcher(cfg, mockFetcher)
 	err := app.runMissingTemplates()
+
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	os.Stdout = old
+
 	if err != nil {
 		t.Errorf("runMissingTemplates() error = %v", err)
 	}
 
-	// Messages from "Me" should be filtered out, only "Unknown message from bank" should be reported
-	// This test verifies the filter is working (the actual output goes to stdout)
+	output := buf.String()
+	if !strings.Contains(output, "Total messages without templates: 1") {
+		t.Errorf("expected 1 message without template (Me messages filtered), got output: %q", output)
+	}
 }
 
 func TestApp_runYNABSync_MissingStartDate(t *testing.T) {
@@ -863,63 +878,66 @@ func TestApp_runYNABSync_OnlyNonMDLTransactions(t *testing.T) {
 	}
 }
 
-func TestApp_runYNABSync_SkipsDeclinedTransactions(t *testing.T) {
-	// Save original env var
-	origKey := os.Getenv("YNAB_API_KEY")
-	defer func() {
-		if origKey != "" {
-			os.Setenv("YNAB_API_KEY", origKey)
-		} else {
-			os.Unsetenv("YNAB_API_KEY")
-		}
-	}()
+func TestApp_filterForSync_SkipsDeclinedTransactions(t *testing.T) {
+	cfg := &config.Config{}
+	app := NewApp(cfg, "")
 
-	// Set API key
-	os.Setenv("YNAB_API_KEY", "test-api-key")
-
-	cfg := &config.Config{
-		Senders: []string{"102"},
-		YNAB: config.YNABConfig{
-			BudgetID:  "test-budget",
-			Accounts:  []config.YNABAccount{}, // No accounts - will test account auto-creation is triggered
-			StartDate: "2026-01-01",
+	approved := &ParsedMessage{
+		Message:  &message.Message{Timestamp: time.Now()},
+		HasTemplate: true,
+		Transaction: &template.Transaction{
+			Status:    "Odobrena",
+			Converted: template.Amount{Value: 100, Currency: "MDL"},
 		},
-		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
 	}
-
-	mockFetcher := &MockFetcher{
-		messages: []*message.Message{
-			{
-				Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
-				Sender:    "102",
-				Content: `Op: Tovary i uslugi
-Karta: *1234
-Status: Odobrena
-Summa: 100 MDL
-Dost: 1000,00
-Data/vremya: 10.01.26 10:00
-Adres: TEST SHOP`,
-			},
-			{
-				Timestamp: time.Date(2026, 1, 10, 11, 0, 0, 0, time.UTC),
-				Sender:    "102",
-				Content: `Op: Tovary i uslugi
-Karta: *1234
-Status: Decline§TranNotPermToCardHolder
-Summa: 200 MDL
-Dost: 900,00
-Data/vremya: 10.01.26 11:00
-Adres: DECLINED SHOP`,
-			},
+	declined := &ParsedMessage{
+		Message:  &message.Message{Timestamp: time.Now()},
+		HasTemplate: true,
+		Transaction: &template.Transaction{
+			Status:    "Decline§TranNotPermToCardHolder",
+			Converted: template.Amount{Value: 200, Currency: "MDL"},
 		},
 	}
 
-	app := NewAppWithFetcher(cfg, mockFetcher)
-	err := app.runYNABSync()
-	// Should fail trying to get accounts (since no mock YNAB client and will use real API)
-	// This is expected behavior - when accounts don't exist, system tries to create them via API
-	if err == nil {
-		t.Error("runYNABSync() should fail when trying to access real YNAB API without valid credentials")
+	msgs, txs := app.filterForSync([]*ParsedMessage{approved, declined})
+
+	if len(msgs) != 1 {
+		t.Errorf("filterForSync() returned %d messages, want 1", len(msgs))
+	}
+	if len(txs) != 1 {
+		t.Errorf("filterForSync() returned %d transactions, want 1", len(txs))
+	}
+	if len(txs) == 1 && txs[0].Status != "Odobrena" {
+		t.Errorf("filterForSync() kept transaction with status %q, want only approved", txs[0].Status)
+	}
+}
+
+func TestApp_filterForSync_SkipsNonMDL(t *testing.T) {
+	cfg := &config.Config{}
+	app := NewApp(cfg, "")
+
+	mdl := &ParsedMessage{
+		Message:  &message.Message{Timestamp: time.Now()},
+		HasTemplate: true,
+		Transaction: &template.Transaction{
+			Converted: template.Amount{Value: 100, Currency: "MDL"},
+		},
+	}
+	usd := &ParsedMessage{
+		Message:  &message.Message{Timestamp: time.Now()},
+		HasTemplate: true,
+		Transaction: &template.Transaction{
+			Converted: template.Amount{Value: 50, Currency: "USD"},
+		},
+	}
+
+	msgs, txs := app.filterForSync([]*ParsedMessage{mdl, usd})
+
+	if len(msgs) != 1 {
+		t.Errorf("filterForSync() returned %d messages, want 1", len(msgs))
+	}
+	if len(txs) == 1 && txs[0].Converted.Currency != "MDL" {
+		t.Errorf("filterForSync() kept non-MDL transaction")
 	}
 }
 

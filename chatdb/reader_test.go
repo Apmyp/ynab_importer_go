@@ -213,6 +213,7 @@ func createTestDB(t *testing.T) string {
 			ROWID INTEGER PRIMARY KEY,
 			handle_id INTEGER,
 			text TEXT,
+			attributedBody BLOB,
 			date INTEGER,
 			is_from_me INTEGER
 		);

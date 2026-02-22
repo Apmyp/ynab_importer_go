@@ -227,7 +227,7 @@ func TestSyncStore_DeleteSyncedOnOrAfter_NoMatchingRecords(t *testing.T) {
 	}
 }
 
-func TestSyncStore_DeleteSyncedOnOrAfter_EmptyTransactionDateSkipped(t *testing.T) {
+func TestSyncStore_DeleteSyncedOnOrAfter_UndatedRecordsDeleted(t *testing.T) {
 	dir := t.TempDir()
 	storePath := filepath.Join(dir, "data.json")
 	store, err := NewSyncStore(storePath)
@@ -239,6 +239,7 @@ func TestSyncStore_DeleteSyncedOnOrAfter_EmptyTransactionDateSkipped(t *testing.
 	records := []*SyncRecord{
 		{ImportID: "ID1", SyncedAt: time.Now().UTC(), TransactionDate: ""},
 		{ImportID: "ID2", SyncedAt: time.Now().UTC(), TransactionDate: "2026-01-15"},
+		{ImportID: "ID3", SyncedAt: time.Now().UTC(), TransactionDate: "2025-12-01"},
 	}
 	for _, r := range records {
 		if err := store.RecordSync(r); err != nil {
@@ -251,8 +252,16 @@ func TestSyncStore_DeleteSyncedOnOrAfter_EmptyTransactionDateSkipped(t *testing.
 	if err != nil {
 		t.Fatalf("DeleteSyncedOnOrAfter() error = %v", err)
 	}
-	if n != 1 {
-		t.Errorf("DeleteSyncedOnOrAfter() deleted %d records, want 1", n)
+	if n != 2 {
+		t.Errorf("DeleteSyncedOnOrAfter() deleted %d records, want 2 (undated + on-or-after)", n)
+	}
+
+	synced, _ := store.GetAllSynced()
+	if len(synced) != 1 {
+		t.Errorf("GetAllSynced() returned %d records, want 1 (only pre-cutoff dated record)", len(synced))
+	}
+	if len(synced) == 1 && synced[0].ImportID != "ID3" {
+		t.Errorf("GetAllSynced() kept %q, want ID3", synced[0].ImportID)
 	}
 }
 

@@ -25,8 +25,9 @@ func TestClient_CreateTransactions_Success(t *testing.T) {
 
 		response := CreateTransactionsResponse{
 			Data: struct {
-				TransactionIDs []string `json:"transaction_ids"`
-				Transactions   []struct {
+				TransactionIDs     []string `json:"transaction_ids"`
+				DuplicateImportIDs []string `json:"duplicate_import_ids,omitempty"`
+				Transactions       []struct {
 					ID       string `json:"id"`
 					ImportID string `json:"import_id"`
 				} `json:"transactions,omitempty"`

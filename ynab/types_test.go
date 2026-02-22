@@ -195,6 +195,43 @@ func TestGetTransactionsResponse_JSON(t *testing.T) {
 	}
 }
 
+func TestCreateTransactionsResponse_DuplicateImportIDs_JSON(t *testing.T) {
+	raw := `{
+		"data": {
+			"transaction_ids": ["txn-1"],
+			"duplicate_import_ids": ["YNAB:abc123", "YNAB:def456"]
+		}
+	}`
+
+	var resp CreateTransactionsResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(resp.Data.DuplicateImportIDs) != 2 {
+		t.Fatalf("DuplicateImportIDs len = %d, want 2", len(resp.Data.DuplicateImportIDs))
+	}
+	if resp.Data.DuplicateImportIDs[0] != "YNAB:abc123" {
+		t.Errorf("DuplicateImportIDs[0] = %q, want %q", resp.Data.DuplicateImportIDs[0], "YNAB:abc123")
+	}
+	if resp.Data.DuplicateImportIDs[1] != "YNAB:def456" {
+		t.Errorf("DuplicateImportIDs[1] = %q, want %q", resp.Data.DuplicateImportIDs[1], "YNAB:def456")
+	}
+}
+
+func TestCreateTransactionsResponse_DuplicateImportIDs_OmittedWhenEmpty(t *testing.T) {
+	raw := `{"data": {"transaction_ids": ["txn-1"]}}`
+
+	var resp CreateTransactionsResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(resp.Data.DuplicateImportIDs) != 0 {
+		t.Errorf("DuplicateImportIDs should be empty when absent, got %v", resp.Data.DuplicateImportIDs)
+	}
+}
+
 func TestGetCategoriesResponse_JSON(t *testing.T) {
 	resp := GetCategoriesResponse{}
 	resp.Data.CategoryGroups = []CategoryGroup{

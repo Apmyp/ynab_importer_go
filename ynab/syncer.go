@@ -209,11 +209,16 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 			return result, fmt.Errorf("failed to create transactions: %w", err)
 		}
 
+		dupSet := make(map[string]bool)
 		for _, dupID := range resp.Data.DuplicateImportIDs {
+			dupSet[dupID] = true
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Warning: YNAB skipped as duplicate: %s", dupID))
 		}
 
 		for j, importID := range batchImportIDs {
+			if dupSet[importID] {
+				continue
+			}
 			record := &SyncRecord{
 				ImportID:        importID,
 				SyncedAt:        time.Now().UTC(),

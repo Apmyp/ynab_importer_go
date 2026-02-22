@@ -134,7 +134,7 @@ func (s *SyncStore) DeleteSyncedOnOrAfter(date time.Time) (int, error) {
 	deleted := 0
 	for _, record := range data.YNABSyncedTransactions {
 		if record.TransactionDate == "" {
-			deleted++
+			kept = append(kept, record)
 			continue
 		}
 		txDate, err := time.Parse("2006-01-02", record.TransactionDate)

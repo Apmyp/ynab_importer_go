@@ -1228,3 +1228,102 @@ func TestApp_doReimport_SkipsAlreadyDeletedTransactions(t *testing.T) {
 		t.Errorf("DeleteTransaction called for %v, want only [tx-active] (soft-deleted tx skipped)", deletedIDs)
 	}
 }
+
+func TestApp_runYNABSyncWithOptions_FromOverrideEarlierThanConfigStartDate(t *testing.T) {
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	cfg := &config.Config{
+		Senders: []string{"102"},
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			Accounts:  []config.YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}},
+			StartDate: "2026-02-01",
+		},
+		DataFilePath: filepath.Join(t.TempDir(), "data.json"),
+	}
+
+	app := NewAppWithFetcher(cfg, &MockFetcher{messages: []*message.Message{}})
+
+	fromOverride, _ := time.Parse("2006-01-02", "2026-01-01")
+	err := app.runYNABSyncWithOptions(false, &fromOverride)
+	if err != nil {
+		t.Errorf("runYNABSyncWithOptions() with fromOverride earlier than config.StartDate returned error: %v", err)
+	}
+}
+
+func TestApp_doReimport_FromEarlierThanConfigStartDateClearsSyncRecordsFromFrom(t *testing.T) {
+	origKey := os.Getenv("YNAB_API_KEY")
+	defer func() {
+		if origKey != "" {
+			os.Setenv("YNAB_API_KEY", origKey)
+		} else {
+			os.Unsetenv("YNAB_API_KEY")
+		}
+	}()
+	os.Setenv("YNAB_API_KEY", "test-api-key")
+
+	dataFilePath := filepath.Join(t.TempDir(), "data.json")
+
+	syncStore, err := ynab.NewSyncStore(dataFilePath)
+	if err != nil {
+		t.Fatalf("NewSyncStore() error = %v", err)
+	}
+	syncStore.RecordSync(&ynab.SyncRecord{
+		ImportID:        "YNAB:early",
+		SyncedAt:        time.Now(),
+		TransactionDate: "2026-01-10",
+	})
+	syncStore.RecordSync(&ynab.SyncRecord{
+		ImportID:        "YNAB:late",
+		SyncedAt:        time.Now(),
+		TransactionDate: "2026-03-01",
+	})
+	syncStore.Close()
+
+	cfg := &config.Config{
+		YNAB: config.YNABConfig{
+			BudgetID:  "test-budget",
+			StartDate: "2026-02-01",
+		},
+		DataFilePath: dataFilePath,
+	}
+
+	mockClient := &mockYNABClient{
+		getTransactionsFunc: func(budgetID, sinceDate string) (*ynab.GetTransactionsResponse, error) {
+			return &ynab.GetTransactionsResponse{}, nil
+		},
+	}
+
+	app := NewAppWithFetcher(cfg, &MockFetcher{messages: []*message.Message{}})
+	from, _ := time.Parse("2006-01-02", "2026-01-01")
+	if err := app.doReimport(mockClient, from); err != nil {
+		t.Fatalf("doReimport() error = %v", err)
+	}
+
+	verifyStore, err := ynab.NewSyncStore(dataFilePath)
+	if err != nil {
+		t.Fatalf("NewSyncStore() error = %v", err)
+	}
+	defer verifyStore.Close()
+
+	records, err := verifyStore.GetAllSynced()
+	if err != nil {
+		t.Fatalf("GetAllSynced() error = %v", err)
+	}
+	for _, r := range records {
+		if r.ImportID == "YNAB:early" {
+			t.Error("sync record dated 2026-01-10 should have been cleared by doReimport with from=2026-01-01")
+		}
+		if r.ImportID == "YNAB:late" {
+			t.Error("sync record dated 2026-03-01 should have been cleared by doReimport with from=2026-01-01")
+		}
+	}
+}

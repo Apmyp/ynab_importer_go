@@ -311,10 +311,10 @@ func (app *App) filterForSync(parsedMessages []*ParsedMessage) ([]*message.Messa
 }
 
 func (app *App) runYNABSync() error {
-	return app.runYNABSyncWithOptions(false)
+	return app.runYNABSyncWithOptions(false, nil)
 }
 
-func (app *App) runYNABSyncWithOptions(reimport bool) error {
+func (app *App) runYNABSyncWithOptions(reimport bool, fromOverride *time.Time) error {
 	apiKey := os.Getenv("YNAB_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("YNAB_API_KEY environment variable not set")
@@ -341,6 +341,10 @@ func (app *App) runYNABSyncWithOptions(reimport bool) error {
 	startDate, err := time.Parse("2006-01-02", app.config.YNAB.StartDate)
 	if err != nil {
 		return fmt.Errorf("invalid YNAB start_date format: %w", err)
+	}
+
+	if fromOverride != nil && (reimport || fromOverride.Before(startDate)) {
+		startDate = *fromOverride
 	}
 
 	messages, cleanup, err := app.fetchMessages()
@@ -570,6 +574,18 @@ func (app *App) runReimport(args []string) error {
 	client := ynab.NewHTTPClient(apiKey)
 	defer client.ClearAPIKey()
 
+	if app.config.YNAB.BudgetID == "" {
+		budgetID, err := app.fetchFirstBudgetID(client)
+		if err != nil {
+			return fmt.Errorf("failed to fetch budget ID: %w", err)
+		}
+		app.config.YNAB.BudgetID = budgetID
+		if err := app.config.Save(app.configPath); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		fmt.Printf("Saved budget ID %s to config\n", budgetID)
+	}
+
 	fmt.Printf("This will delete all YNAB transactions from %s onwards and re-import.\n", fromDate)
 	fmt.Print("Continue? (y/N): ")
 	var confirm string
@@ -616,7 +632,7 @@ func (app *App) doReimport(client ynab.YNABClient, from time.Time) error {
 	fmt.Printf("Cleared %d local sync records\n", n)
 
 	fmt.Println("Re-running sync...")
-	return app.runYNABSyncWithOptions(true)
+	return app.runYNABSyncWithOptions(true, &from)
 }
 
 func main() {

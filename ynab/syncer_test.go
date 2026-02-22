@@ -613,6 +613,45 @@ func TestSyncer_Sync_NoUnknownPayees_WhenCategoryAssigned(t *testing.T) {
 	}
 }
 
+func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			resp := &CreateTransactionsResponse{}
+			resp.Data.DuplicateImportIDs = []string{"YNAB:abc123", "YNAB:def456"}
+			return resp, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate)
+
+	messages := []*message.Message{
+		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
+	}
+	transactions := []*template.Transaction{
+		{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare"},
+	}
+
+	result, err := syncer.Sync(messages, transactions)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if len(result.Warnings) != 2 {
+		t.Fatalf("Warnings = %v, want 2 entries", result.Warnings)
+	}
+	if result.Warnings[0] != "Warning: YNAB skipped as duplicate: YNAB:abc123" {
+		t.Errorf("Warnings[0] = %q, want warning about YNAB:abc123", result.Warnings[0])
+	}
+	if result.Warnings[1] != "Warning: YNAB skipped as duplicate: YNAB:def456" {
+		t.Errorf("Warnings[1] = %q, want warning about YNAB:def456", result.Warnings[1])
+	}
+}
+
 func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
 	store, _ := NewSyncStore(t.TempDir() + "/data.json")
 	defer store.Close()

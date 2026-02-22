@@ -32,6 +32,7 @@ type SyncResult struct {
 	Synced        int
 	Skipped       int
 	Failed        []string
+	Warnings      []string
 	UnknownPayees []string
 }
 
@@ -182,9 +183,13 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 		batch := toSync[i:end]
 		batchImportIDs := toSyncImportIDs[i:end]
 
-		_, err := s.client.CreateTransactions(s.budgetID, batch)
+		resp, err := s.client.CreateTransactions(s.budgetID, batch)
 		if err != nil {
 			return result, fmt.Errorf("failed to create transactions: %w", err)
+		}
+
+		for _, dupID := range resp.Data.DuplicateImportIDs {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Warning: YNAB skipped as duplicate: %s", dupID))
 		}
 
 		for _, importID := range batchImportIDs {

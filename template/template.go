@@ -164,7 +164,7 @@ type DebitareTemplate struct {
 func NewDebitareTemplate() *DebitareTemplate {
 	return &DebitareTemplate{
 		// Example: Debitare cont Card 9..7890, Data 08.04.2024 09:27:01, Suma 9.65 MDL, Detalii ..., Disponibil 38400.60 MDL
-		regex: regexp.MustCompile(`Debitare cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii (.+?), Disponibil ([\d.]+) \w+$`),
+		regex: regexp.MustCompile(`Debitare cont Card ([^,]+), Data ([^,]+), Suma ([\d.]+) (\w+), Detalii (.+?), Disponibil ([\d.]+) \w+`),
 	}
 }
 

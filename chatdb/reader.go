@@ -3,6 +3,7 @@ package chatdb
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/apmyp/ynab_importer_go/message"
@@ -102,6 +103,10 @@ func (r *Reader) FetchMessages() ([]*message.Message, error) {
 		}
 
 		timestamp := appleTimeToUnix(date)
+
+		messageText = strings.TrimRightFunc(messageText, func(r rune) bool {
+			return r == '\ufffd' || r == '\x00'
+		})
 
 		messages = append(messages, &message.Message{
 			Timestamp: timestamp,

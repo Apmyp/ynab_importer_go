@@ -134,6 +134,30 @@ func TestAnalyze_UnmatchedCredit_KindIncome(t *testing.T) {
 	}
 }
 
+func TestAnalyze_MAIBtoMAIB_RaznyeVyplaty_DetectsPair(t *testing.T) {
+	base := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	msgs := []*message.Message{
+		{Timestamp: base, Sender: "102"},
+		{Timestamp: base.Add(1 * time.Minute), Sender: "102"},
+	}
+	txs := []*template.Transaction{
+		{Card: "*1972", Converted: template.Amount{Value: 50000.00, Currency: "MDL"}, Operation: "Raznye vyplaty *4335"},
+		{Card: "*4335", Converted: template.Amount{Value: 50000.00, Currency: "MDL"}, Operation: "Popolnenie *1972"},
+	}
+
+	result := Analyze(msgs, txs, 5*time.Minute, 7*24*time.Hour)
+
+	if result[0].Kind != KindTransfer {
+		t.Errorf("result[0].Kind = %v, want KindTransfer", result[0].Kind)
+	}
+	if result[1].Kind != KindCreditTransfer {
+		t.Errorf("result[1].Kind = %v, want KindCreditTransfer", result[1].Kind)
+	}
+	if !result[0].HasPair || result[0].PairIndex != 1 {
+		t.Errorf("result[0].HasPair=%v PairIndex=%d, want true/1", result[0].HasPair, result[0].PairIndex)
+	}
+}
+
 func TestAnalyze_CreditUsedOnlyOnce(t *testing.T) {
 	base := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
 	msgs := []*message.Message{

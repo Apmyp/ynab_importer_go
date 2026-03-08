@@ -346,6 +346,36 @@ func TestMapper_MapTransaction_StandardMemoIsEmpty(t *testing.T) {
 	}
 }
 
+func TestMapper_MapTransaction_RaznyeVyplaty_IsDebit(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "1972"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Raznye vyplaty *4335",
+		Card:      "*1972",
+		Converted: template.Amount{
+			Value:    50000.00,
+			Currency: "MDL",
+		},
+		Address: "Transfer",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.Amount != -50000000 {
+		t.Errorf("Amount = %v, want -50000000 (debit/outflow)", payload.Amount)
+	}
+}
+
 func TestMapper_MapTransaction_NalogNaDoxodyPoVkladu_IsDebit(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},

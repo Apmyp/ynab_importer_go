@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apmyp/ynab_importer_go/analyzer"
 	"github.com/apmyp/ynab_importer_go/message"
 	"github.com/apmyp/ynab_importer_go/template"
 )
@@ -50,6 +51,24 @@ func (m *mockClient) DeleteTransaction(budgetID, transactionID string) error {
 	return nil
 }
 
+// makeAnalyzed builds a slice of AnalyzedTransactions with no pairs for convenience.
+func makeAnalyzed(msgs []*message.Message, txs []*template.Transaction) []analyzer.AnalyzedTransaction {
+	result := make([]analyzer.AnalyzedTransaction, len(msgs))
+	for i := range msgs {
+		kind := analyzer.KindIncome
+		if isDebit(txs[i].Operation) {
+			kind = analyzer.KindPayment
+		}
+		result[i] = analyzer.AnalyzedTransaction{
+			Message:     msgs[i],
+			Transaction: txs[i],
+			Kind:        kind,
+			PairIndex:   -1,
+		}
+	}
+	return result
+}
+
 func TestNewSyncer(t *testing.T) {
 	store, _ := NewSyncStore(t.TempDir() + "/data.json")
 	client := &mockClient{}
@@ -91,33 +110,28 @@ func TestSyncer_Sync_FiltersByDate(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	// Create messages - one before startDate, one after
 	messages := []*message.Message{
 		{Timestamp: time.Date(2025, 12, 31, 10, 0, 0, 0, time.UTC), Sender: "102"},
 		{Timestamp: time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC), Sender: "102"},
 		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC), Sender: "102"},
 	}
-
 	transactions := []*template.Transaction{
 		{Card: "9..1234", Converted: template.Amount{Value: 100, Currency: "MDL"}, Operation: "Debitare"},
 		{Card: "9..1234", Converted: template.Amount{Value: 200, Currency: "MDL"}, Operation: "Debitare"},
 		{Card: "9..1234", Converted: template.Amount{Value: 300, Currency: "MDL"}, Operation: "Debitare"},
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(makeAnalyzed(messages, transactions))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	// Should only sync 2 transactions (after start date)
 	if result.Synced != 2 {
 		t.Errorf("Synced = %d, want 2", result.Synced)
 	}
-
 	if result.Skipped != 1 {
 		t.Errorf("Skipped = %d, want 1 (before start date)", result.Skipped)
 	}
-
 	if len(capturedTransactions) != 2 {
 		t.Errorf("Expected 2 transactions sent to API, got %d", len(capturedTransactions))
 	}
@@ -141,7 +155,6 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 		Operation: "Debitare",
 	}
 
-	// Record as already synced
 	importID := mapper.GenerateImportID(msg, tx)
 	store.RecordSync(&SyncRecord{ImportID: importID, SyncedAt: time.Now()})
 
@@ -156,7 +169,7 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	result, err := syncer.Sync(makeAnalyzed([]*message.Message{msg}, []*template.Transaction{tx}))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -164,7 +177,6 @@ func TestSyncer_Sync_SkipsAlreadySynced(t *testing.T) {
 	if result.Synced != 0 {
 		t.Errorf("Synced = %d, want 0 (already synced)", result.Synced)
 	}
-
 	if result.Skipped != 1 {
 		t.Errorf("Skipped = %d, want 1 (already synced)", result.Skipped)
 	}
@@ -184,14 +196,16 @@ func TestSyncer_Sync_HandlesAPIError(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	msg := &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)}
-	tx := &template.Transaction{
-		Card:      "9..1234",
-		Converted: template.Amount{Value: 100, Currency: "MDL"},
-		Operation: "Debitare",
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
+			Transaction: &template.Transaction{Card: "9..1234", Converted: template.Amount{Value: 100, Currency: "MDL"}, Operation: "Debitare"},
+			Kind:        analyzer.KindPayment,
+			PairIndex:   -1,
+		},
 	}
 
-	_, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	_, err := syncer.Sync(analyzed)
 	if err == nil {
 		t.Error("Sync() should return error when API call fails")
 	}
@@ -229,7 +243,6 @@ func TestSyncer_Sync_BatchesTransactions(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	// Create 150 transactions
 	var messages []*message.Message
 	var transactions []*template.Transaction
 	for i := 0; i < 150; i++ {
@@ -244,16 +257,14 @@ func TestSyncer_Sync_BatchesTransactions(t *testing.T) {
 		})
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(makeAnalyzed(messages, transactions))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
-	// Should create 2 batches (100 + 50)
 	if batchCount != 2 {
 		t.Errorf("batchCount = %d, want 2 (100 + 50)", batchCount)
 	}
-
 	if result.Synced != 150 {
 		t.Errorf("Synced = %d, want 150", result.Synced)
 	}
@@ -266,85 +277,6 @@ func TestTransactionPayload_HasTransferAccountID(t *testing.T) {
 	}
 	if payload.TransferAccountID != "acc-2" {
 		t.Errorf("TransferAccountID = %q, want %q", payload.TransferAccountID, "acc-2")
-	}
-}
-
-func TestDetectTransferPairs_DetectsPair(t *testing.T) {
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-
-	messages := []*message.Message{
-		{Timestamp: baseTime},
-		{Timestamp: baseTime.Add(2 * time.Minute)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
-	}
-
-	pairs := detectTransferPairs(messages, transactions)
-
-	if len(pairs) != 1 {
-		t.Fatalf("detectTransferPairs() returned %d pairs, want 1", len(pairs))
-	}
-	if pairs[0] != 1 {
-		t.Errorf("pairs[0] = %d, want 1 (credit index)", pairs[0])
-	}
-}
-
-func TestDetectTransferPairs_NoPairWhenSameAccount(t *testing.T) {
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-
-	messages := []*message.Message{
-		{Timestamp: baseTime},
-		{Timestamp: baseTime.Add(2 * time.Minute)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
-	}
-
-	pairs := detectTransferPairs(messages, transactions)
-
-	if len(pairs) != 0 {
-		t.Errorf("detectTransferPairs() returned %d pairs, want 0 (same account)", len(pairs))
-	}
-}
-
-func TestDetectTransferPairs_NoPairWhenOutsideTimeWindow(t *testing.T) {
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-
-	messages := []*message.Message{
-		{Timestamp: baseTime},
-		{Timestamp: baseTime.Add(10 * time.Minute)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
-	}
-
-	pairs := detectTransferPairs(messages, transactions)
-
-	if len(pairs) != 0 {
-		t.Errorf("detectTransferPairs() returned %d pairs, want 0 (outside time window)", len(pairs))
-	}
-}
-
-func TestDetectTransferPairs_NoPairWhenAmountDiffers(t *testing.T) {
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-
-	messages := []*message.Message{
-		{Timestamp: baseTime},
-		{Timestamp: baseTime.Add(1 * time.Minute)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..2222", Converted: template.Amount{Value: 450.00, Currency: "MDL"}, Operation: "Suplinire"},
-	}
-
-	pairs := detectTransferPairs(messages, transactions)
-
-	if len(pairs) != 0 {
-		t.Errorf("detectTransferPairs() returned %d pairs, want 0 (different amounts)", len(pairs))
 	}
 }
 
@@ -371,17 +303,25 @@ func TestSyncer_Sync_TransferPair_SkipsCreditSide(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-	messages := []*message.Message{
-		{Timestamp: baseTime, Sender: "102"},
-		{Timestamp: baseTime.Add(2 * time.Minute), Sender: "102"},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare", Address: "Transfer"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
+	base := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: base, Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
+			Kind:        analyzer.KindTransfer,
+			HasPair:     true,
+			PairIndex:   1,
+		},
+		{
+			Message:     &message.Message{Timestamp: base.Add(2 * time.Minute), Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
+			Kind:        analyzer.KindCreditTransfer,
+			HasPair:     true,
+			PairIndex:   0,
+		},
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(analyzed)
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -389,11 +329,9 @@ func TestSyncer_Sync_TransferPair_SkipsCreditSide(t *testing.T) {
 	if result.Synced != 1 {
 		t.Errorf("Synced = %d, want 1 (only debit side)", result.Synced)
 	}
-
 	if result.Skipped != 1 {
 		t.Errorf("Skipped = %d, want 1 (credit side skipped)", result.Skipped)
 	}
-
 	if len(capturedTransactions) != 1 {
 		t.Fatalf("Expected 1 transaction sent to API, got %d", len(capturedTransactions))
 	}
@@ -407,6 +345,56 @@ func TestSyncer_Sync_TransferPair_SkipsCreditSide(t *testing.T) {
 	}
 	if sent.Amount >= 0 {
 		t.Errorf("Amount = %d, want negative (debit)", sent.Amount)
+	}
+}
+
+func TestSyncer_Sync_IncomeKind_SyncedAsPositive(t *testing.T) {
+	store, _ := NewSyncStore(t.TempDir() + "/data.json")
+	defer store.Close()
+
+	var capturedTransactions []TransactionPayload
+	client := &mockClient{
+		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
+			capturedTransactions = transactions
+			response := &CreateTransactionsResponse{}
+			for range transactions {
+				response.Data.TransactionIDs = append(response.Data.TransactionIDs, "txn-1")
+			}
+			return response, nil
+		},
+	}
+
+	mapper := NewMapper([]YNABAccount{
+		{YNABAccountID: "acc-1", Last4: "1234"},
+	}, nil)
+	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
+	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
+
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC), Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..1234", Converted: template.Amount{Value: 93719.33, Currency: "MDL"}, Operation: "Suplinire", Address: "Plata salariala"},
+			Kind:        analyzer.KindIncome,
+			PairIndex:   -1,
+		},
+	}
+
+	result, err := syncer.Sync(analyzed)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	if result.Synced != 1 {
+		t.Errorf("Synced = %d, want 1", result.Synced)
+	}
+	if len(capturedTransactions) != 1 {
+		t.Fatalf("Expected 1 transaction, got %d", len(capturedTransactions))
+	}
+	if capturedTransactions[0].Amount <= 0 {
+		t.Errorf("Amount = %d, want positive (income)", capturedTransactions[0].Amount)
+	}
+	if capturedTransactions[0].TransferAccountID != "" {
+		t.Errorf("TransferAccountID = %q, want empty for income", capturedTransactions[0].TransferAccountID)
 	}
 }
 
@@ -432,15 +420,16 @@ func TestSyncer_Sync_NonTransferTransactionsUnaffected(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-	messages := []*message.Message{
-		{Timestamp: baseTime, Sender: "102"},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 100.00, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC), Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..1111", Converted: template.Amount{Value: 100.00, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
+			Kind:        analyzer.KindPayment,
+			PairIndex:   -1,
+		},
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(analyzed)
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -448,37 +437,11 @@ func TestSyncer_Sync_NonTransferTransactionsUnaffected(t *testing.T) {
 	if result.Synced != 1 {
 		t.Errorf("Synced = %d, want 1", result.Synced)
 	}
-
 	if len(capturedTransactions) != 1 {
 		t.Fatalf("Expected 1 transaction, got %d", len(capturedTransactions))
 	}
-
 	if capturedTransactions[0].TransferAccountID != "" {
 		t.Errorf("TransferAccountID = %q, want empty for non-transfer", capturedTransactions[0].TransferAccountID)
-	}
-}
-
-func TestDetectTransferPairs_CreditUsedOnlyOnce(t *testing.T) {
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-
-	messages := []*message.Message{
-		{Timestamp: baseTime},
-		{Timestamp: baseTime.Add(1 * time.Minute)},
-		{Timestamp: baseTime.Add(2 * time.Minute)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..3333", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
-	}
-
-	pairs := detectTransferPairs(messages, transactions)
-
-	if len(pairs) != 1 {
-		t.Fatalf("detectTransferPairs() returned %d pairs, want 1 (credit can only be used once)", len(pairs))
-	}
-	if _, hasFirst := pairs[0]; !hasFirst {
-		t.Error("Expected first debit (index 0) to be paired, not second")
 	}
 }
 
@@ -496,24 +459,32 @@ func TestSyncer_Sync_TransferPair_CreditAccountNotFound(t *testing.T) {
 		},
 	}
 
-	// Mapper only knows about the debit account, not the credit account
+	// Mapper only knows about the debit account.
 	mapper := NewMapper([]YNABAccount{
 		{YNABAccountID: "acc-debit", Last4: "1111"},
 	}, nil)
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	baseTime := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
-	messages := []*message.Message{
-		{Timestamp: baseTime, Sender: "102"},
-		{Timestamp: baseTime.Add(2 * time.Minute), Sender: "102"},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare", Address: "Transfer"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
+	base := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: base, Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare"},
+			Kind:        analyzer.KindTransfer,
+			HasPair:     true,
+			PairIndex:   1,
+		},
+		{
+			Message:     &message.Message{Timestamp: base.Add(2 * time.Minute), Sender: "102"},
+			Transaction: &template.Transaction{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire"},
+			Kind:        analyzer.KindCreditTransfer,
+			HasPair:     true,
+			PairIndex:   0,
+		},
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(analyzed)
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -521,98 +492,8 @@ func TestSyncer_Sync_TransferPair_CreditAccountNotFound(t *testing.T) {
 	if result.Synced != 0 {
 		t.Errorf("Synced = %d, want 0 (credit account not found, debit skipped)", result.Synced)
 	}
-
 	if len(result.Failed) == 0 {
 		t.Error("Expected failure recorded for unmapped credit account")
-	}
-}
-
-func TestSyncResult_HasUnknownPayees(t *testing.T) {
-	result := &SyncResult{
-		Total:         1,
-		Synced:        1,
-		UnknownPayees: []string{"Coffee Shop"},
-	}
-	if len(result.UnknownPayees) != 1 {
-		t.Errorf("UnknownPayees = %v, want 1 entry", result.UnknownPayees)
-	}
-}
-
-func TestSyncer_Sync_TracksUnknownPayees(t *testing.T) {
-	store, _ := NewSyncStore(t.TempDir() + "/data.json")
-	defer store.Close()
-
-	client := &mockClient{
-		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
-			resp := &CreateTransactionsResponse{}
-			for range transactions {
-				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
-			}
-			return resp, nil
-		},
-	}
-
-	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
-	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
-
-	messages := []*message.Message{
-		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
-	}
-
-	result, err := syncer.Sync(messages, transactions)
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	if len(result.UnknownPayees) != 1 {
-		t.Errorf("UnknownPayees = %v, want 1 entry", result.UnknownPayees)
-	}
-	if result.UnknownPayees[0] != "Coffee Shop" {
-		t.Errorf("UnknownPayees[0] = %q, want Coffee Shop", result.UnknownPayees[0])
-	}
-}
-
-func TestSyncer_Sync_NoUnknownPayees_WhenCategoryAssigned(t *testing.T) {
-	filePath := t.TempDir() + "/data.json"
-	store, _ := NewSyncStore(filePath)
-	defer store.Close()
-
-	client := &mockClient{
-		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
-			resp := &CreateTransactionsResponse{}
-			for range transactions {
-				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
-			}
-			return resp, nil
-		},
-	}
-
-	categoryStore := NewCategoryStore(filePath)
-	if err := categoryStore.Set("Coffee Shop", "cat-food"); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
-	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, categoryStore)
-	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
-
-	messages := []*message.Message{
-		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
-	}
-
-	result, err := syncer.Sync(messages, transactions)
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	if len(result.UnknownPayees) != 0 {
-		t.Errorf("UnknownPayees = %v, want empty (category was assigned)", result.UnknownPayees)
 	}
 }
 
@@ -634,14 +515,16 @@ func TestSyncer_Sync_WarnsDuplicateImportIDs(t *testing.T) {
 	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
 	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
 
-	messages := []*message.Message{
-		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare"},
+	analyzed := []analyzer.AnalyzedTransaction{
+		{
+			Message:     &message.Message{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
+			Transaction: &template.Transaction{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare"},
+			Kind:        analyzer.KindPayment,
+			PairIndex:   -1,
+		},
 	}
 
-	result, err := syncer.Sync(messages, transactions)
+	result, err := syncer.Sync(analyzed)
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -689,7 +572,7 @@ func TestSyncer_Sync_ReimportMode_ClearsImportIDInPayload(t *testing.T) {
 		Operation: "Debitare",
 	}
 
-	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	result, err := syncer.Sync(makeAnalyzed([]*message.Message{msg}, []*template.Transaction{tx}))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -697,11 +580,9 @@ func TestSyncer_Sync_ReimportMode_ClearsImportIDInPayload(t *testing.T) {
 	if result.Synced != 1 {
 		t.Fatalf("Synced = %d, want 1", result.Synced)
 	}
-
 	if len(capturedPayloads) != 1 {
 		t.Fatalf("Expected 1 payload sent to API, got %d", len(capturedPayloads))
 	}
-
 	if capturedPayloads[0].ImportID != "" {
 		t.Errorf("ImportID = %q, want empty in reimport mode", capturedPayloads[0].ImportID)
 	}
@@ -743,7 +624,7 @@ func TestSyncer_Sync_NormalMode_KeepsImportIDInPayload(t *testing.T) {
 		Operation: "Debitare",
 	}
 
-	result, err := syncer.Sync([]*message.Message{msg}, []*template.Transaction{tx})
+	result, err := syncer.Sync(makeAnalyzed([]*message.Message{msg}, []*template.Transaction{tx}))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -751,11 +632,9 @@ func TestSyncer_Sync_NormalMode_KeepsImportIDInPayload(t *testing.T) {
 	if result.Synced != 1 {
 		t.Fatalf("Synced = %d, want 1", result.Synced)
 	}
-
 	if len(capturedPayloads) != 1 {
 		t.Fatalf("Expected 1 payload sent to API, got %d", len(capturedPayloads))
 	}
-
 	if capturedPayloads[0].ImportID == "" {
 		t.Errorf("ImportID should not be empty in normal mode")
 	}
@@ -788,7 +667,7 @@ func TestSyncer_Sync_RecordsSyncWithTransactionDate(t *testing.T) {
 		{Card: "9..1234", Converted: template.Amount{Value: 100, Currency: "MDL"}, Operation: "Debitare"},
 	}
 
-	_, err := syncer.Sync(messages, transactions)
+	_, err := syncer.Sync(makeAnalyzed(messages, transactions))
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
@@ -797,174 +676,10 @@ func TestSyncer_Sync_RecordsSyncWithTransactionDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAllSynced() error = %v", err)
 	}
-
 	if len(records) != 1 {
 		t.Fatalf("GetAllSynced() returned %d records, want 1", len(records))
 	}
-
 	if records[0].TransactionDate != "2026-01-15" {
 		t.Errorf("TransactionDate = %q, want %q", records[0].TransactionDate, "2026-01-15")
-	}
-}
-
-func TestSyncer_Sync_TransferPair_CreditSyncsWhenDebitBeforeStartDate(t *testing.T) {
-	store, _ := NewSyncStore(t.TempDir() + "/data.json")
-	defer store.Close()
-
-	var capturedTransactions []TransactionPayload
-	client := &mockClient{
-		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
-			capturedTransactions = append(capturedTransactions, transactions...)
-			resp := &CreateTransactionsResponse{}
-			for range transactions {
-				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
-			}
-			return resp, nil
-		},
-	}
-
-	mapper := NewMapper([]YNABAccount{
-		{YNABAccountID: "acc-debit", Last4: "1111"},
-		{YNABAccountID: "acc-credit", Last4: "2222"},
-	}, nil)
-	startDate, _ := time.Parse("2006-01-02", "2026-01-02")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
-
-	// Debit is 2 minutes before start date; credit is 2 minutes after.
-	// Both are within the 5-minute transfer detection window.
-	messages := []*message.Message{
-		{Timestamp: time.Date(2026, 1, 1, 23, 58, 0, 0, time.UTC), Sender: "102"},
-		{Timestamp: time.Date(2026, 1, 2, 0, 2, 0, 0, time.UTC), Sender: "102"},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1111", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Debitare", Address: "Transfer"},
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
-	}
-
-	result, err := syncer.Sync(messages, transactions)
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	// Debit is before start date and skipped; credit is after start date and
-	// should be synced as a regular transaction (not dropped).
-	if result.Synced != 1 {
-		t.Errorf("Synced = %d, want 1 (credit synced independently)", result.Synced)
-	}
-	if result.Skipped != 1 {
-		t.Errorf("Skipped = %d, want 1 (debit before start date)", result.Skipped)
-	}
-	if len(capturedTransactions) != 1 {
-		t.Fatalf("Expected 1 transaction sent to API, got %d", len(capturedTransactions))
-	}
-	// Credit synced as regular inbound; no transfer account link expected.
-	if capturedTransactions[0].AccountID != "acc-credit" {
-		t.Errorf("AccountID = %q, want acc-credit", capturedTransactions[0].AccountID)
-	}
-	if capturedTransactions[0].TransferAccountID != "" {
-		t.Errorf("TransferAccountID = %q, want empty (credit processed independently)", capturedTransactions[0].TransferAccountID)
-	}
-}
-
-func TestSyncer_Sync_TransferPair_CreditSkippedWhenDebitAlreadySynced(t *testing.T) {
-	store, _ := NewSyncStore(t.TempDir() + "/data.json")
-	defer store.Close()
-
-	mapper := NewMapper([]YNABAccount{
-		{YNABAccountID: "acc-debit", Last4: "1111"},
-		{YNABAccountID: "acc-credit", Last4: "2222"},
-	}, nil)
-	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-
-	// Debit 2 minutes before startDate (23:58 Dec 31) so the pair is within the
-	// 5-minute detection window. Credit is exactly at startDate midnight so it is
-	// NOT caught by the general date filter (Before is strict). The only reason
-	// the credit gets skipped is the debitSynced check at syncer.go:134-142 —
-	// that's what this test validates.
-	debitTime := time.Date(2025, 12, 31, 23, 58, 0, 0, time.UTC)
-	creditTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	debitMsg := &message.Message{Timestamp: debitTime, Sender: "102"}
-	debitTx := &template.Transaction{
-		Card:      "9..1111",
-		Converted: template.Amount{Value: 500.00, Currency: "MDL"},
-		Operation: "Debitare",
-		Address:   "Transfer",
-	}
-
-	// Pre-record the debit as already synced (simulating a previous run).
-	debitImportID := mapper.GenerateImportID(debitMsg, debitTx)
-	store.RecordSync(&SyncRecord{ImportID: debitImportID, SyncedAt: time.Now(), TransactionDate: "2025-12-31"})
-
-	callCount := 0
-	client := &mockClient{
-		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
-			callCount++
-			return &CreateTransactionsResponse{}, nil
-		},
-	}
-
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
-
-	messages := []*message.Message{
-		debitMsg,
-		{Timestamp: creditTime, Sender: "102"},
-	}
-	transactions := []*template.Transaction{
-		debitTx,
-		{Card: "9..2222", Converted: template.Amount{Value: 500.00, Currency: "MDL"}, Operation: "Suplinire", Address: "Transfer"},
-	}
-
-	result, err := syncer.Sync(messages, transactions)
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	// Both should be skipped: debit already synced, credit correctly skipped
-	// because its debit partner was previously synced (YNAB auto-created the credit).
-	if result.Synced != 0 {
-		t.Errorf("Synced = %d, want 0 (debit already synced, credit should be skipped)", result.Synced)
-	}
-	if result.Skipped != 2 {
-		t.Errorf("Skipped = %d, want 2", result.Skipped)
-	}
-	if callCount != 0 {
-		t.Errorf("API called %d times, want 0", callCount)
-	}
-}
-
-func TestSyncer_Sync_UnknownPayees_Deduplicated(t *testing.T) {
-	store, _ := NewSyncStore(t.TempDir() + "/data.json")
-	defer store.Close()
-
-	client := &mockClient{
-		createTransactionsFunc: func(budgetID string, transactions []TransactionPayload) (*CreateTransactionsResponse, error) {
-			resp := &CreateTransactionsResponse{}
-			for range transactions {
-				resp.Data.TransactionIDs = append(resp.Data.TransactionIDs, "txn-1")
-			}
-			return resp, nil
-		},
-	}
-
-	mapper := NewMapper([]YNABAccount{{YNABAccountID: "acc-1", Last4: "1234"}}, nil)
-	startDate, _ := time.Parse("2006-01-02", "2026-01-01")
-	syncer := NewSyncer(store, client, mapper, "test-budget", startDate, false)
-
-	messages := []*message.Message{
-		{Timestamp: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)},
-		{Timestamp: time.Date(2026, 1, 11, 10, 0, 0, 0, time.UTC)},
-	}
-	transactions := []*template.Transaction{
-		{Card: "9..1234", Converted: template.Amount{Value: 10, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
-		{Card: "9..1234", Converted: template.Amount{Value: 20, Currency: "MDL"}, Operation: "Debitare", Address: "Coffee Shop"},
-	}
-
-	result, err := syncer.Sync(messages, transactions)
-	if err != nil {
-		t.Fatalf("Sync() error = %v", err)
-	}
-
-	if len(result.UnknownPayees) != 1 {
-		t.Errorf("UnknownPayees = %v, want 1 (deduplicated)", result.UnknownPayees)
 	}
 }

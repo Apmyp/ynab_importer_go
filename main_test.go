@@ -942,6 +942,33 @@ func TestApp_filterForSync_SkipsDeclinedTransactions(t *testing.T) {
 	}
 }
 
+func TestApp_filterForSync_ExcludesIgnoredMessages(t *testing.T) {
+	cfg := &config.Config{}
+	app := NewApp(cfg, "")
+
+	// EximTransaction matches a template (HasTemplate = true) but should be ignored.
+	eximPM := &ParsedMessage{
+		Message: &message.Message{
+			Timestamp: time.Now(),
+			Content:   "Tranzactia din 29/05/2023 din contul ACC1234567MD4 in contul MD99XX000000011111111111 in suma de 5000.00 MDL a fost Executata",
+		},
+		HasTemplate: true,
+		Transaction: &template.Transaction{
+			Original:  template.Amount{Value: 5000, Currency: "MDL"},
+			Converted: template.Amount{Value: 5000, Currency: "MDL"},
+		},
+	}
+
+	msgs, txs := app.filterForSync([]*ParsedMessage{eximPM})
+
+	if len(msgs) != 0 {
+		t.Errorf("filterForSync() returned %d messages, want 0 for ignored message", len(msgs))
+	}
+	if len(txs) != 0 {
+		t.Errorf("filterForSync() returned %d transactions, want 0 for ignored message", len(txs))
+	}
+}
+
 func TestApp_filterForSync_SkipsNonMDL(t *testing.T) {
 	cfg := &config.Config{}
 	app := NewApp(cfg, "")

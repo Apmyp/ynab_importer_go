@@ -2,12 +2,9 @@ package ynab
 
 import (
 	"fmt"
-	"math"
-	"regexp"
 	"time"
 
-	"github.com/apmyp/ynab_importer_go/message"
-	"github.com/apmyp/ynab_importer_go/template"
+	"github.com/apmyp/ynab_importer_go/analyzer"
 )
 
 type YNABClient interface {
@@ -32,9 +29,8 @@ type SyncResult struct {
 	Total         int
 	Synced        int
 	Skipped       int
-	Failed        []string
-	Warnings      []string
-	UnknownPayees []string
+	Failed   []string
+	Warnings []string
 }
 
 func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time, reimport bool) *Syncer {
@@ -48,99 +44,22 @@ func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID str
 	}
 }
 
-var last4Regex = regexp.MustCompile(`\d{4}$`)
-
-func extractLast4(card string) string {
-	return last4Regex.FindString(card)
-}
-
-func detectTransferPairs(messages []*message.Message, transactions []*template.Transaction) map[int]int {
-	pairs := make(map[int]int)
-	creditUsed := make(map[int]bool)
-
-	for i, tx := range transactions {
-		if !isDebit(tx.Operation) {
-			continue
-		}
-
-		for j, candidate := range transactions {
-			if i == j {
-				continue
-			}
-			if isDebit(candidate.Operation) {
-				continue
-			}
-			if creditUsed[j] {
-				continue
-			}
-
-			diff := math.Abs(tx.Converted.Value - candidate.Converted.Value)
-			if diff > 0.01 {
-				continue
-			}
-
-			if extractLast4(tx.Card) == extractLast4(candidate.Card) {
-				continue
-			}
-
-			timeDiff := messages[i].Timestamp.Sub(messages[j].Timestamp)
-			if timeDiff < 0 {
-				timeDiff = -timeDiff
-			}
-			if timeDiff > 5*time.Minute {
-				continue
-			}
-
-			pairs[i] = j
-			creditUsed[j] = true
-			break
-		}
-	}
-
-	return pairs
-}
-
-func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Transaction) (*SyncResult, error) {
+func (s *Syncer) Sync(analyzed []analyzer.AnalyzedTransaction) (*SyncResult, error) {
 	result := &SyncResult{
-		Total: len(transactions),
-	}
-
-	if len(messages) != len(transactions) {
-		return nil, fmt.Errorf("messages and transactions length mismatch: %d vs %d", len(messages), len(transactions))
-	}
-
-	transferPairs := detectTransferPairs(messages, transactions)
-	creditSideIndexes := make(map[int]bool)
-	creditToDebit := make(map[int]int)
-	for debitIdx, creditIdx := range transferPairs {
-		creditSideIndexes[creditIdx] = true
-		creditToDebit[creditIdx] = debitIdx
+		Total: len(analyzed),
 	}
 
 	var toSync []TransactionPayload
 	var toSyncImportIDs []string
 
-	for i := 0; i < len(transactions); i++ {
-		msg := messages[i]
-		tx := transactions[i]
-
-		if creditSideIndexes[i] {
-			debitIdx := creditToDebit[i]
-			debitMsg := messages[debitIdx]
-			if !debitMsg.Timestamp.Before(s.startDate) {
-				result.Skipped++
-				continue
-			}
-			debitImportID := s.mapper.GenerateImportID(debitMsg, transactions[debitIdx])
-			debitSynced, err := s.store.IsSynced(debitImportID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check debit sync status: %w", err)
-			}
-			if debitSynced {
-				result.Skipped++
-				continue
-			}
+	for _, at := range analyzed {
+		if at.Kind == analyzer.KindCreditTransfer {
+			result.Skipped++
+			continue
 		}
+
+		msg := at.Message
+		tx := at.Transaction
 
 		if msg.Timestamp.Before(s.startDate) {
 			result.Skipped++
@@ -165,8 +84,8 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 			continue
 		}
 
-		if creditIdx, isTransfer := transferPairs[i]; isTransfer {
-			creditTx := transactions[creditIdx]
+		if at.Kind == analyzer.KindTransfer && at.HasPair {
+			creditTx := analyzed[at.PairIndex].Transaction
 			creditAccountID, err := s.mapper.MatchAccount(creditTx)
 			if err != nil {
 				result.Skipped++
@@ -174,12 +93,6 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 				continue
 			}
 			payload.TransferAccountID = creditAccountID
-		}
-
-		if payload.CategoryID == "" && payload.PayeeName != "" {
-			if !containsString(result.UnknownPayees, payload.PayeeName) {
-				result.UnknownPayees = append(result.UnknownPayees, payload.PayeeName)
-			}
 		}
 
 		if s.reimport {
@@ -232,13 +145,4 @@ func (s *Syncer) Sync(messages []*message.Message, transactions []*template.Tran
 	}
 
 	return result, nil
-}
-
-func containsString(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

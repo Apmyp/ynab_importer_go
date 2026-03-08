@@ -1,15 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/apmyp/ynab_importer_go/analyzer"
 	"github.com/apmyp/ynab_importer_go/chatdb"
 	"github.com/apmyp/ynab_importer_go/config"
 	"github.com/apmyp/ynab_importer_go/exchangerate"
@@ -183,6 +184,8 @@ func Run(args []string) error {
 		return app.runSystemUninstall()
 	case "reimport":
 		return app.runReimport(args[1:])
+	case "analyze":
+		return app.runAnalyze(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}
@@ -298,6 +301,9 @@ func (app *App) filterForSync(parsedMessages []*ParsedMessage) ([]*message.Messa
 	var filteredTransactions []*template.Transaction
 	for _, pm := range parsedMessages {
 		if pm != nil && pm.HasTemplate && pm.Transaction != nil {
+			if app.matcher.ShouldIgnore(pm.Message.Content) {
+				continue
+			}
 			if strings.HasPrefix(pm.Transaction.Status, "Decline") {
 				continue
 			}
@@ -369,6 +375,8 @@ func (app *App) runYNABSyncWithOptions(reimport bool, fromOverride *time.Time) e
 
 	fmt.Printf("Found %d MDL transactions to sync\n", len(filteredTransactions))
 
+	analyzed := analyzer.Analyze(filteredMessages, filteredTransactions, 5*time.Minute, 7*24*time.Hour)
+
 	syncStore, err := ynab.NewSyncStore(app.config.DataFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sync store: %w", err)
@@ -413,7 +421,7 @@ func (app *App) runYNABSyncWithOptions(reimport bool, fromOverride *time.Time) e
 	mapper := ynab.NewMapper(ynabAccounts, categoryStore)
 	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate, reimport)
 
-	result, err := syncer.Sync(filteredMessages, filteredTransactions)
+	result, err := syncer.Sync(analyzed)
 	if err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
@@ -432,58 +440,6 @@ func (app *App) runYNABSyncWithOptions(reimport bool, fromOverride *time.Time) e
 		fmt.Fprintf(os.Stderr, "%s\n", w)
 	}
 
-	if len(result.UnknownPayees) > 0 {
-		stdinInfo, stdinErr := os.Stdin.Stat()
-		isInteractive := stdinErr == nil && (stdinInfo.Mode()&os.ModeCharDevice) != 0
-		if isInteractive {
-			if err := app.promptForCategories(client, app.config.YNAB.BudgetID, result.UnknownPayees, categoryStore); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to prompt for categories: %v\n", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (app *App) promptForCategories(client ynab.YNABClient, budgetID string, unknownPayees []string, categoryStore *ynab.CategoryStore) error {
-	resp, err := client.GetCategories(budgetID)
-	if err != nil {
-		return fmt.Errorf("failed to get categories: %w", err)
-	}
-
-	var categories []ynab.CategoryItem
-	for _, group := range resp.Data.CategoryGroups {
-		for _, cat := range group.Categories {
-			if !cat.Deleted && !cat.Hidden {
-				categories = append(categories, cat)
-			}
-		}
-	}
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for _, payee := range unknownPayees {
-		fmt.Printf("\nAssign category for payee %q:\n", payee)
-		for i, cat := range categories {
-			fmt.Printf("  %d: %s\n", i+1, cat.Name)
-		}
-		fmt.Printf("  0: Skip\n")
-		fmt.Print("Enter number: ")
-		if !scanner.Scan() {
-			break
-		}
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" || input == "0" {
-			continue
-		}
-		var choice int
-		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(categories) {
-			fmt.Fprintf(os.Stderr, "Invalid choice, skipping\n")
-			continue
-		}
-		if err := categoryStore.Set(payee, categories[choice-1].ID); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save category for %s: %v\n", payee, err)
-		}
-	}
 	return nil
 }
 
@@ -633,6 +589,87 @@ func (app *App) doReimport(client ynab.YNABClient, from time.Time) error {
 
 	fmt.Println("Re-running sync...")
 	return app.runYNABSyncWithOptions(true, &from)
+}
+
+func (app *App) runAnalyze(args []string) error {
+	days := 10
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--days" {
+			if n, err := strconv.Atoi(args[i+1]); err == nil {
+				days = n
+			}
+		}
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+
+	messages, cleanup, err := app.fetchMessages()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	parsedMessages := make([]*ParsedMessage, len(messages))
+	var mu sync.Mutex
+	app.pool.Map(len(messages), func(i int) {
+		parsed := app.parseMessage(messages[i])
+		mu.Lock()
+		parsedMessages[i] = parsed
+		mu.Unlock()
+	})
+
+	app.convertTransactions(parsedMessages)
+	filteredMessages, filteredTransactions := app.filterForSync(parsedMessages)
+	analyzed := analyzer.Analyze(filteredMessages, filteredTransactions, 5*time.Minute, 7*24*time.Hour)
+
+	for _, at := range analyzed {
+		if at.Message.Timestamp.Before(cutoff) {
+			continue
+		}
+
+		var kindLabel string
+		var sign string
+		switch at.Kind {
+		case analyzer.KindPayment:
+			kindLabel = "PAYMENT"
+			sign = "-"
+		case analyzer.KindIncome:
+			kindLabel = "INCOME"
+			sign = "+"
+		case analyzer.KindTransfer:
+			kindLabel = "TRANSFER"
+			sign = "-"
+		case analyzer.KindCreditTransfer:
+			kindLabel = "SKIPPED"
+			sign = "+"
+		}
+
+		payee := at.Transaction.Address
+		if payee == "" {
+			payee = "Unknown"
+		}
+		if at.Kind == analyzer.KindTransfer && at.HasPair {
+			payee = fmt.Sprintf("→ card %s", analyzed[at.PairIndex].Transaction.Card)
+		} else if at.Kind == analyzer.KindCreditTransfer && at.HasPair {
+			payee = fmt.Sprintf("paired with transfer idx %d", at.PairIndex)
+		}
+
+		card := at.Transaction.Card
+		if card == "" {
+			card = "unknown"
+		}
+
+		fmt.Printf("[%s]  %-9s  %s%.2f %s  %s  (card %s)\n",
+			at.Message.Timestamp.Format("2006-01-02 15:04"),
+			kindLabel,
+			sign,
+			at.Transaction.Converted.Value,
+			at.Transaction.Converted.Currency,
+			payee,
+			card,
+		)
+	}
+
+	return nil
 }
 
 func main() {

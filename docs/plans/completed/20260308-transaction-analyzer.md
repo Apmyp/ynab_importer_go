@@ -148,16 +148,41 @@ Note: `EximTransactionTemplate` matches "Tranzactia din..." messages (they have 
 - [ ] Remove the `filteredMessages` / `filteredTransactions` variables that are now consumed by the analyzer call
 - [ ] Run `go test ./...` — must pass
 
-### Task 5: Verify acceptance criteria
+### Task 5: Add `analyze` command — dry-run pipeline preview
+
+**Files:**
+- Modify: `main.go`
+
+New command `analyze [--days N]` (default N=10) that runs the full pipeline against real chat.db but prints results to stdout instead of syncing to YNAB. Useful for verifying analyzer behavior before committing.
+
+Output format per transaction:
+```
+[2026-01-15 10:30]  PAYMENT    -150.00 MDL  COFFEE SHOP  (card *1234)
+[2026-01-15 10:30]  TRANSFER   -5000.00 MDL  → card *5678  (card *1234)
+[2026-01-15 10:31]  SKIPPED    +5000.00 MDL  paired with transfer above  (card *5678)
+[2026-01-15 10:45]  INCOME     +93719.33 MDL  Plata salariala  (card *1234)
+```
+
+- [ ] Add `runAnalyze(args []string) error` method to `App`
+  - Parse `--days N` flag (default 10)
+  - Compute `cutoff = time.Now().UTC().AddDate(0, 0, -N)`
+  - Fetch → parse → convertTransactions → filterForSync → `analyzer.Analyze()`
+  - Print each `AnalyzedTransaction` with kind label, amount, payee/address, card, and pair pointer if transfer
+- [ ] Wire `analyze` case in the `switch command` block in `Run()`
+- [ ] No YNAB client created, no SyncStore opened — purely local
+- [ ] Run `go test ./...` — must pass (no test required for this command, it's a debug tool)
+
+### Task 6: Verify acceptance criteria
 
 - [ ] Transfer MAIB→MAIB: synced as a single transfer with `TransferAccountID` set, credit side skipped
 - [ ] Transfer EXIM→MAIB: same outcome with cross-bank window
 - [ ] Regular payment: synced as `KindPayment`, no `TransferAccountID`
 - [ ] "Tranzactia din..." messages: never appear in `result.Failed`
+- [ ] `analyze --days 10` runs against real chat.db and output looks correct
 - [ ] Run full test suite: `go test ./...`
 - [ ] Run `go vet ./...`
 
-### Task 6: Update documentation and move plan
+### Task 7: Update documentation and move plan
 
 - [ ] Update `README.md` if it describes the pipeline
 - [ ] Move this plan to `docs/plans/completed/`

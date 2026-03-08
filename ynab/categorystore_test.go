@@ -3,6 +3,7 @@ package ynab
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestNewCategoryStore(t *testing.T) {
@@ -163,6 +164,71 @@ func TestCategoryStore_SetInvalidFile(t *testing.T) {
 	err := store.Set("payee", "cat-1")
 	if err == nil {
 		t.Error("Set() should return error for invalid file")
+	}
+}
+
+func TestCategoryStore_IsSeededRecently_NeverSeeded(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+
+	fresh, err := store.IsSeededRecently(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("IsSeededRecently() error = %v", err)
+	}
+	if fresh {
+		t.Error("IsSeededRecently() = true, want false when never seeded")
+	}
+}
+
+func TestCategoryStore_IsSeededRecently_Fresh(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+
+	if err := store.MarkSeeded(); err != nil {
+		t.Fatalf("MarkSeeded() error = %v", err)
+	}
+
+	fresh, err := store.IsSeededRecently(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("IsSeededRecently() error = %v", err)
+	}
+	if !fresh {
+		t.Error("IsSeededRecently() = false, want true just after MarkSeeded")
+	}
+}
+
+func TestCategoryStore_IsSeededRecently_Stale(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+
+	if err := store.MarkSeeded(); err != nil {
+		t.Fatalf("MarkSeeded() error = %v", err)
+	}
+
+	fresh, err := store.IsSeededRecently(0)
+	if err != nil {
+		t.Fatalf("IsSeededRecently() error = %v", err)
+	}
+	if fresh {
+		t.Error("IsSeededRecently() = true, want false for zero TTL")
+	}
+}
+
+func TestCategoryStore_MarkSeeded_Persists(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+
+	if err := store.MarkSeeded(); err != nil {
+		t.Fatalf("MarkSeeded() error = %v", err)
+	}
+
+	store2 := NewCategoryStore(filePath)
+	fresh, err := store2.IsSeededRecently(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("IsSeededRecently() error = %v", err)
+	}
+	if !fresh {
+		t.Error("IsSeededRecently() = false after reload, MarkSeeded did not persist")
 	}
 }
 

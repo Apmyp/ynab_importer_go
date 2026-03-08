@@ -3,6 +3,7 @@ package ynab
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 type mockYNABClientForCategorizer struct {
@@ -159,6 +160,47 @@ func TestSeedCategoriesFromYNAB_RequestsLast12Months(t *testing.T) {
 
 	if capturedSinceDate == "" {
 		t.Error("Expected a since_date to be passed, got empty string")
+	}
+}
+
+func TestSeedCategoriesFromYNAB_SkipsAPICallWhenFresh(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+	_ = store.MarkSeeded()
+
+	callCount := 0
+	client := &mockYNABClientForCategorizer{
+		getTransactionsFunc: func(budgetID, sinceDate string) (*GetTransactionsResponse, error) {
+			callCount++
+			return &GetTransactionsResponse{}, nil
+		},
+	}
+
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
+
+	if callCount != 0 {
+		t.Errorf("Expected 0 API calls when cache is fresh, got %d", callCount)
+	}
+}
+
+func TestSeedCategoriesFromYNAB_MarksSeededAfterSuccess(t *testing.T) {
+	filePath := t.TempDir() + "/data.json"
+	store := NewCategoryStore(filePath)
+
+	client := &mockYNABClientForCategorizer{}
+
+	if err := SeedCategoriesFromYNAB(client, "budget-1", store); err != nil {
+		t.Fatalf("SeedCategoriesFromYNAB() error = %v", err)
+	}
+
+	fresh, err := store.IsSeededRecently(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("IsSeededRecently() error = %v", err)
+	}
+	if !fresh {
+		t.Error("Expected store to be marked as seeded after successful call")
 	}
 }
 

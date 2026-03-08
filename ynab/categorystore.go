@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 )
 
 type CategoryStore struct {
@@ -85,6 +86,36 @@ func (s *CategoryStore) SetBatch(mapping map[string]string) error {
 	for payee, catID := range mapping {
 		data.PayeeCategories[payee] = catID
 	}
+	return s.writeFile(data)
+}
+
+func (s *CategoryStore) IsSeededRecently(ttl time.Duration) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data, err := s.readFile()
+	if err != nil {
+		return false, err
+	}
+
+	if data.CategoriesSeededAt == nil {
+		return false, nil
+	}
+
+	return time.Since(*data.CategoriesSeededAt) < ttl, nil
+}
+
+func (s *CategoryStore) MarkSeeded() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readFile()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	data.CategoriesSeededAt = &now
 	return s.writeFile(data)
 }
 

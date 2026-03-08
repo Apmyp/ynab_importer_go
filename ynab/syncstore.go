@@ -16,6 +16,7 @@ type dataFile struct {
 	Rates                  []interface{}     `json:"rates"`
 	YNABSyncedTransactions []SyncRecord      `json:"ynab_synced_transactions"`
 	PayeeCategories        map[string]string `json:"payee_categories,omitempty"`
+	CategoriesSeededAt     *time.Time        `json:"categories_seeded_at,omitempty"`
 }
 
 func NewSyncStore(filePath string) (*SyncStore, error) {

@@ -182,8 +182,11 @@ func TestMapper_MapTransaction(t *testing.T) {
 		t.Errorf("Amount = %v, want -100500 (100.50 MDL in milliunits)", payload.Amount)
 	}
 
-	if payload.PayeeName != "Test Merchant" {
-		t.Errorf("PayeeName = %v, want Test Merchant", payload.PayeeName)
+	if payload.PayeeName != "" {
+		t.Errorf("PayeeName = %v, want empty (Debitare uses memo)", payload.PayeeName)
+	}
+	if payload.Memo != "Test Merchant" {
+		t.Errorf("Memo = %v, want Test Merchant (address as memo for Debitare)", payload.Memo)
 	}
 
 	if payload.Cleared != "cleared" {
@@ -406,6 +409,66 @@ func TestMapper_MapTransaction_NalogNaDoxodyPoVkladu_IsDebit(t *testing.T) {
 	}
 }
 
+func TestMapper_MapTransaction_Debitare_AddressAsMemo(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "6345"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 2, 26, 12, 8, 22, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Debitare",
+		Card:      "4..6345",
+		Converted: template.Amount{Value: 150000.00, Currency: "MDL"},
+		Address:   "Plata OP /  0 - MAIB : transfer pe card meu",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.PayeeName != "" {
+		t.Errorf("PayeeName = %q, want empty for Debitare transaction", payload.PayeeName)
+	}
+	if payload.Memo != "Plata OP /  0 - MAIB : transfer pe card meu" {
+		t.Errorf("Memo = %q, want address as memo for Debitare transaction", payload.Memo)
+	}
+}
+
+func TestMapper_MapTransaction_Suplinire_AddressAsMemo(t *testing.T) {
+	accounts := []YNABAccount{
+		{YNABAccountID: "account-1", Last4: "6345"},
+	}
+	mapper := NewMapper(accounts, nil)
+
+	msg := &message.Message{
+		Timestamp: time.Date(2026, 3, 5, 9, 35, 0, 0, time.UTC),
+	}
+
+	tx := &template.Transaction{
+		Operation: "Suplinire",
+		Card:      "4..6345",
+		Converted: template.Amount{Value: 58211.54, Currency: "MDL"},
+		Address:   "Plata primei anuale in baza conventiei de salarizare",
+	}
+
+	payload, err := mapper.MapTransaction(msg, tx)
+	if err != nil {
+		t.Fatalf("MapTransaction() error = %v", err)
+	}
+
+	if payload.PayeeName != "" {
+		t.Errorf("PayeeName = %q, want empty for Suplinire transaction", payload.PayeeName)
+	}
+	if payload.Memo != "Plata primei anuale in baza conventiei de salarizare" {
+		t.Errorf("Memo = %q, want address as memo for Suplinire transaction", payload.Memo)
+	}
+}
+
 func TestMapper_MapTransaction_PlataSalarialaLuna_NoPayeeAddressAsMemo(t *testing.T) {
 	accounts := []YNABAccount{
 		{YNABAccountID: "account-1", Last4: "1234"},
@@ -518,8 +581,9 @@ func TestMapper_MapTransaction_AppliesCategory(t *testing.T) {
 		t.Fatalf("MapTransaction() error = %v", err)
 	}
 
-	if payload.CategoryID != "cat-food-123" {
-		t.Errorf("CategoryID = %q, want cat-food-123", payload.CategoryID)
+	// Debitare puts Address in memo and clears payee, so no category is assigned.
+	if payload.CategoryID != "" {
+		t.Errorf("CategoryID = %q, want empty (no payee for Debitare)", payload.CategoryID)
 	}
 }
 

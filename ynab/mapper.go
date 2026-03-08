@@ -87,7 +87,9 @@ func (m *Mapper) MapTransaction(msg *message.Message, tx *template.Transaction) 
 	}
 
 	memo := buildMemo(tx)
-	if strings.Contains(tx.Address, "Plata salariala luna") {
+	// EXIM bank uses "Detalii" for operational descriptions, not merchant names.
+	// Move Address to memo and clear payee for all Debitare/Suplinire transactions.
+	if tx.Operation == "Debitare" || tx.Operation == "Suplinire" {
 		payeeName = ""
 		memo = tx.Address
 	}

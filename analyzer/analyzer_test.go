@@ -134,6 +134,21 @@ func TestAnalyze_UnmatchedCredit_KindIncome(t *testing.T) {
 	}
 }
 
+func TestAnalyze_KommunalnyePlatezhi_KindPayment(t *testing.T) {
+	msgs := []*message.Message{
+		{Timestamp: time.Now(), Sender: "102"},
+	}
+	txs := []*template.Transaction{
+		{Card: "*1972", Converted: template.Amount{Value: 885.26, Currency: "MDL"}, Operation: "Kommunal'nye platezhi"},
+	}
+
+	result := Analyze(msgs, txs, 5*time.Minute, 7*24*time.Hour)
+
+	if result[0].Kind != KindPayment {
+		t.Errorf("result[0].Kind = %v, want KindPayment for Kommunal'nye platezhi", result[0].Kind)
+	}
+}
+
 func TestAnalyze_MAIBtoMAIB_RaznyeVyplaty_DetectsPair(t *testing.T) {
 	base := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
 	msgs := []*message.Message{

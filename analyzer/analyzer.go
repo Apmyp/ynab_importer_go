@@ -40,6 +40,7 @@ func isDebit(operation string) bool {
 		"Tranzactie reusita",
 		"Nalog na doxody po vkladu",
 		"Raznye vyplaty",
+		"Kommunal'nye platezhi",
 	}
 	for _, op := range debitOps {
 		if strings.Contains(operation, op) {

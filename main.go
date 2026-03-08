@@ -419,7 +419,7 @@ func (app *App) runYNABSyncWithOptions(reimport bool, fromOverride *time.Time) e
 	}
 
 	mapper := ynab.NewMapper(ynabAccounts, categoryStore)
-	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate, reimport)
+	syncer := ynab.NewSyncer(syncStore, client, mapper, app.config.YNAB.BudgetID, startDate, reimport, 6*time.Hour)
 
 	result, err := syncer.Sync(analyzed)
 	if err != nil {

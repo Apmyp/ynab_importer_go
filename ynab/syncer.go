@@ -17,12 +17,13 @@ type YNABClient interface {
 }
 
 type Syncer struct {
-	store     *SyncStore
-	client    YNABClient
-	mapper    *Mapper
-	budgetID  string
-	startDate time.Time
-	reimport  bool
+	store           *SyncStore
+	client          YNABClient
+	mapper          *Mapper
+	budgetID        string
+	startDate       time.Time
+	reimport        bool
+	debitWaitWindow time.Duration
 }
 
 type SyncResult struct {
@@ -33,14 +34,15 @@ type SyncResult struct {
 	Warnings []string
 }
 
-func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time, reimport bool) *Syncer {
+func NewSyncer(store *SyncStore, client YNABClient, mapper *Mapper, budgetID string, startDate time.Time, reimport bool, debitWaitWindow time.Duration) *Syncer {
 	return &Syncer{
-		store:     store,
-		client:    client,
-		mapper:    mapper,
-		budgetID:  budgetID,
-		startDate: startDate,
-		reimport:  reimport,
+		store:           store,
+		client:          client,
+		mapper:          mapper,
+		budgetID:        budgetID,
+		startDate:       startDate,
+		reimport:        reimport,
+		debitWaitWindow: debitWaitWindow,
 	}
 }
 
@@ -64,6 +66,13 @@ func (s *Syncer) Sync(analyzed []analyzer.AnalyzedTransaction) (*SyncResult, err
 		if msg.Timestamp.Before(s.startDate) {
 			result.Skipped++
 			continue
+		}
+
+		if s.debitWaitWindow > 0 && at.Kind == analyzer.KindPayment && isDebit(tx.Operation) {
+			if time.Since(msg.Timestamp) < s.debitWaitWindow {
+				result.Skipped++
+				continue
+			}
 		}
 
 		importID := s.mapper.GenerateImportID(msg, tx)
